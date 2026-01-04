@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@import "./slider.css";
+
+/* Tokyo Night Theme Colors */
+@theme {
+  /* Background colors */
+  --color-tokyo-bg: #1a1b26;
+  --color-tokyo-bg-dark: #16161e;
+  --color-tokyo-bg-hl: #1f2335;
+  --color-tokyo-bg-menu: #24283b;
+
+  /* Foreground colors */
+  --color-tokyo-fg: #c0caf5;
+  --color-tokyo-fg-dark: #a9b1d6;
+  --color-tokyo-fg-gutter: #3b4261;
+  --color-tokyo-comment: #565f89;
+
+  /* Accent colors */
+  --color-tokyo-blue: #7aa2f7;
+  --color-tokyo-blue-dark: #3d59a1;
+  --color-tokyo-cyan: #7dcfff;
+  --color-tokyo-purple: #bb9af7;
+  --color-tokyo-magenta: #ff007c;
+  --color-tokyo-green: #9ece6a;
+  --color-tokyo-red: #f7768e;
+  --color-tokyo-orange: #ff9e64;
+  --color-tokyo-yellow: #e0af68;
+
+  /* UI colors */
+  --color-tokyo-border: #29293f;
+  --color-tokyo-selection: #33467c;
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}

@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  hibiki:
+    image: ghcr.io/bitc0de/hibiki:latest
+    container_name: hibiki
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist database
+      - ./data:/app/data
+      # Optional: persist yt-dlp cache
+      - yt-dlp-cache:/home/nextjs/.cache/yt-dlp
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  yt-dlp-cache:

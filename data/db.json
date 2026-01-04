@@ -1,0 +1,80 @@
+{
+  "songs": [
+    {
+      "youtubeId": "hAONx6nuEgI",
+      "title": "i-dle (아이들) 'Good Thing' Official Music Video",
+      "channelName": "i-dle (아이들)",
+      "thumbnail": "https://i.ytimg.com/vi/hAONx6nuEgI/maxresdefault.jpg",
+      "duration": 175,
+      "id": "e2180e37e292f41eeb31c721b572616e",
+      "isInLibrary": true,
+      "createdAt": 1767486871144
+    },
+    {
+      "youtubeId": "g-VBwa2FY5M",
+      "title": "It Was K - The Yordles (League Of Legends Champion Rocks)",
+      "channelName": "The Yordles",
+      "thumbnail": "https://i.ytimg.com/vi/g-VBwa2FY5M/maxresdefault.jpg",
+      "duration": 180,
+      "id": "b03545fbdfb46a923711fe7b386f3d6b",
+      "isInLibrary": true,
+      "createdAt": 1767558198046
+    }
+  ],
+  "playlists": [],
+  "playlistSongs": [],
+  "sessions": [
+    {
+      "id": "2c46b52cc279192fae25f3a61d643eaf",
+      "displayName": "Disco Duck",
+      "colorIndex": 3,
+      "isAdmin": false,
+      "createdAt": 1767486841514,
+      "lastSeenAt": 1767486912756,
+      "isActive": false
+    },
+    {
+      "id": "91b14b3314cc150f3b690987c3cb0f52",
+      "displayName": "Chris",
+      "colorIndex": 0,
+      "isAdmin": false,
+      "createdAt": 1767558217086,
+      "lastSeenAt": 1767558246118,
+      "isActive": false
+    },
+    {
+      "id": "f75d1c53d095d11bceca8adce90caa39",
+      "displayName": "Brandon",
+      "colorIndex": 0,
+      "isAdmin": false,
+      "createdAt": 1767569823123,
+      "lastSeenAt": 1767569829201,
+      "isActive": true
+    }
+  ],
+  "radioState": {
+    "id": "main",
+    "isPlaying": true,
+    "currentSongId": "e2180e37e292f41eeb31c721b572616e",
+    "currentPosition": 0,
+    "startedAt": 1767486875693,
+    "lastUpdatedAt": 1767486875693,
+    "isShuffled": false,
+    "activeRadioPlaylistId": null
+  },
+  "radioQueue": [
+    {
+      "id": "c19e26007f5065bc6ab08331cdde79de",
+      "songId": "e2180e37e292f41eeb31c721b572616e",
+      "addedBy": "2c46b52cc279192fae25f3a61d643eaf",
+      "addedByName": "Disco Duck",
+      "position": 0,
+      "addedAt": 1767486871145,
+      "isPlayed": true
+    }
+  ],
+  "skipVotes": [],
+  "playlistVotes": [],
+  "radioPlaylists": [],
+  "radioPlaylistSongs": []
+}

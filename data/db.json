@@ -1,80 +1,61 @@
 {
   "songs": [
     {
-      "youtubeId": "hAONx6nuEgI",
-      "title": "i-dle (아이들) 'Good Thing' Official Music Video",
-      "channelName": "i-dle (아이들)",
-      "thumbnail": "https://i.ytimg.com/vi/hAONx6nuEgI/maxresdefault.jpg",
-      "duration": 175,
-      "id": "e2180e37e292f41eeb31c721b572616e",
+      "youtubeId": "PhEAF8OKxQo",
+      "title": "Scooby-Doo!",
+      "channelName": "Dual type - Topic",
+      "thumbnail": "https://i.ytimg.com/vi/PhEAF8OKxQo/maxresdefault.jpg",
+      "duration": 282,
+      "id": "c776557e5713a90441e7d3cd7cef00b6",
       "isInLibrary": true,
-      "createdAt": 1767486871144
-    },
-    {
-      "youtubeId": "g-VBwa2FY5M",
-      "title": "It Was K - The Yordles (League Of Legends Champion Rocks)",
-      "channelName": "The Yordles",
-      "thumbnail": "https://i.ytimg.com/vi/g-VBwa2FY5M/maxresdefault.jpg",
-      "duration": 180,
-      "id": "b03545fbdfb46a923711fe7b386f3d6b",
-      "isInLibrary": true,
-      "createdAt": 1767558198046
+      "createdAt": 1767574584997
     }
   ],
   "playlists": [],
   "playlistSongs": [],
   "sessions": [
     {
-      "id": "2c46b52cc279192fae25f3a61d643eaf",
-      "displayName": "Disco Duck",
-      "colorIndex": 3,
-      "isAdmin": false,
-      "createdAt": 1767486841514,
-      "lastSeenAt": 1767486912756,
-      "isActive": false
-    },
-    {
-      "id": "91b14b3314cc150f3b690987c3cb0f52",
+      "id": "b5280927e07e9c5899db7cca3b1c197d",
       "displayName": "Chris",
       "colorIndex": 0,
       "isAdmin": false,
-      "createdAt": 1767558217086,
-      "lastSeenAt": 1767558246118,
+      "createdAt": 1767574569958,
+      "lastSeenAt": 1767574582256,
       "isActive": false
     },
     {
-      "id": "f75d1c53d095d11bceca8adce90caa39",
-      "displayName": "Brandon",
+      "id": "f54e15f7b8f63d95ce0df7f126621863",
+      "displayName": "Chris",
       "colorIndex": 0,
       "isAdmin": false,
-      "createdAt": 1767569823123,
-      "lastSeenAt": 1767569829201,
+      "createdAt": 1767574592693,
+      "lastSeenAt": 1767574614911,
       "isActive": true
-    }
-  ],
-  "radioState": {
-    "id": "main",
-    "isPlaying": true,
-    "currentSongId": "e2180e37e292f41eeb31c721b572616e",
-    "currentPosition": 0,
-    "startedAt": 1767486875693,
-    "lastUpdatedAt": 1767486875693,
-    "isShuffled": false,
-    "activeRadioPlaylistId": null
-  },
-  "radioQueue": [
-    {
-      "id": "c19e26007f5065bc6ab08331cdde79de",
-      "songId": "e2180e37e292f41eeb31c721b572616e",
-      "addedBy": "2c46b52cc279192fae25f3a61d643eaf",
-      "addedByName": "Disco Duck",
-      "position": 0,
-      "addedAt": 1767486871145,
-      "isPlayed": true
     }
   ],
   "skipVotes": [],
   "playlistVotes": [],
   "radioPlaylists": [],
-  "radioPlaylistSongs": []
+  "radioPlaylistSongs": [],
+  "radioState": {
+    "id": "main",
+    "isPlaying": false,
+    "currentSongId": null,
+    "currentPosition": 0,
+    "startedAt": null,
+    "lastUpdatedAt": 1767574609387,
+    "isShuffled": false,
+    "activeRadioPlaylistId": null
+  },
+  "radioQueue": [
+    {
+      "id": "42d154dcd12254af10add3a90f4f6504",
+      "songId": "c776557e5713a90441e7d3cd7cef00b6",
+      "addedBy": "b5280927e07e9c5899db7cca3b1c197d",
+      "addedByName": "Chris",
+      "position": 0,
+      "addedAt": 1767574584997,
+      "isPlayed": true
+    }
+  ]
 }

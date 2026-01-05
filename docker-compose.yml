@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   hibiki:
-    image: ghcr.io/bitc0de/hibiki:latest
+    image: ghcr.io/superkumkum/hibiki:latest
     container_name: hibiki
     ports:
       - "3000:3000"

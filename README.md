@@ -45,7 +45,7 @@ Self-hosted YouTube music streaming application built with Next.js 15.
 
 1. **Download the docker-compose.yml file:**
    ```bash
-   wget https://raw.githubusercontent.com/bitc0de/hibiki/main/docker-compose.yml
+   wget https://raw.githubusercontent.com/superkumkum/hibiki/main/docker-compose.yml
    ```
 
 2. **Configure environment (optional for Radio admin):**
@@ -132,7 +132,7 @@ docker-compose up -d
 ## Build from Source
 
 ```bash
-git clone https://github.com/bitc0de/hibiki.git
+git clone https://github.com/superkumkum/hibiki.git
 cd hibiki
 docker build -t hibiki .
 docker-compose up -d

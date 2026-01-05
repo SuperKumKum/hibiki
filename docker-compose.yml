@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   hibiki:
     image: ghcr.io/superkumkum/hibiki:latest
@@ -13,6 +11,7 @@ services:
       - yt-dlp-cache:/home/nextjs/.cache/yt-dlp
     environment:
       - NODE_ENV=production
+      - ADMIN_PASSWORD="HibikiWillRulesTheWorld"
     restart: unless-stopped
 
 volumes:

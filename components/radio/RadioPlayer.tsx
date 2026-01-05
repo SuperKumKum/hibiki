@@ -128,9 +128,9 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   if (!currentSong) {
     const canStart = queue.length > 0 || activePlaylist
     return (
-      <div className="bg-gray-800 rounded-xl p-6 text-center">
-        <div className="text-gray-400 mb-2">No song playing</div>
-        <p className="text-gray-500 text-sm mb-4">
+      <div className="bg-tokyo-bg-hl rounded-xl p-6 text-center">
+        <div className="text-tokyo-comment mb-2">No song playing</div>
+        <p className="text-tokyo-fg-gutter text-sm mb-4">
           {queue.length > 0
             ? `${queue.length} song${queue.length > 1 ? 's' : ''} in queue`
             : activePlaylist
@@ -141,7 +141,7 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
         {canStart && (
           <button
             onClick={play}
-            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-full transition-colors inline-flex items-center gap-2"
+            className="bg-tokyo-blue hover:bg-tokyo-cyan text-tokyo-bg px-6 py-3 rounded-full transition-colors inline-flex items-center gap-2"
           >
             <Play size={24} className="ml-0.5" />
             Start Playing
@@ -152,11 +152,11 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl p-4 sm:p-6">
+    <div className="bg-tokyo-bg-hl rounded-xl p-4 sm:p-6">
       <audio ref={audioRef} preload="auto" />
 
       <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-        <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-gray-900 flex-shrink-0">
+        <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-tokyo-bg flex-shrink-0">
           <Image
             src={currentSong.thumbnail}
             alt={currentSong.title}
@@ -166,18 +166,18 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
           />
           {isBuffering && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border-2 border-tokyo-fg border-t-transparent rounded-full animate-spin" />
             </div>
           )}
         </div>
 
         <div className="flex-1 text-center sm:text-left min-w-0">
-          <h3 className="text-white font-semibold text-lg truncate">
+          <h3 className="text-tokyo-fg font-semibold text-lg truncate">
             {currentSong.title}
           </h3>
-          <p className="text-gray-400 truncate">{currentSong.channelName}</p>
+          <p className="text-tokyo-comment truncate">{currentSong.channelName}</p>
 
-          <div className="flex items-center justify-center sm:justify-start gap-4 mt-2 text-sm text-gray-500">
+          <div className="flex items-center justify-center sm:justify-start gap-4 mt-2 text-sm text-tokyo-fg-gutter">
             <div className="flex items-center gap-1">
               <Users size={14} />
               <span>{listeners.length} listening</span>
@@ -189,15 +189,15 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
       {/* Progress bar */}
       <div className="mb-4">
         <div
-          className={`h-2 bg-gray-700 rounded-full overflow-hidden ${isAdmin ? 'cursor-pointer' : ''}`}
+          className={`h-2 bg-tokyo-fg-gutter rounded-full overflow-hidden ${isAdmin ? 'cursor-pointer' : ''}`}
           onClick={handleSeek}
         >
           <div
-            className="h-full bg-green-500 transition-all duration-200"
+            className="h-full bg-tokyo-blue transition-all duration-200"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
+        <div className="flex justify-between text-xs text-tokyo-comment mt-1">
           <span>{formatTime(localTime)}</span>
           <span>{formatTime(currentSong.duration)}</span>
         </div>
@@ -211,13 +211,13 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
             <>
               <button
                 onClick={() => radioState?.isPlaying ? pause() : play()}
-                className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full transition-colors"
+                className="bg-tokyo-blue hover:bg-tokyo-cyan text-tokyo-bg p-3 rounded-full transition-colors"
               >
                 {radioState?.isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-0.5" />}
               </button>
               <button
                 onClick={next}
-                className="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-full transition-colors"
+                className="bg-tokyo-bg-menu hover:bg-tokyo-selection text-tokyo-fg p-2 rounded-full transition-colors"
                 title="Next song"
               >
                 <SkipForward size={20} />
@@ -226,8 +226,8 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
                 onClick={toggleShuffle}
                 className={`p-2 rounded-full transition-colors ${
                   radioState?.isShuffled
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                    ? 'bg-tokyo-blue text-tokyo-bg'
+                    : 'bg-tokyo-bg-menu hover:bg-tokyo-selection text-tokyo-comment'
                 }`}
                 title={radioState?.isShuffled ? 'Shuffle on' : 'Shuffle off'}
               >
@@ -240,8 +240,8 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
               disabled={skipVotes.hasVoted}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 skipVotes.hasVoted
-                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                  : 'bg-orange-600 hover:bg-orange-700 text-white'
+                  ? 'bg-tokyo-bg-menu text-tokyo-comment cursor-not-allowed'
+                  : 'bg-tokyo-orange hover:bg-tokyo-yellow text-tokyo-bg'
               }`}
             >
               {skipVotes.hasVoted ? 'Voted' : 'Vote Skip'} ({skipVotes.current}/{skipVotes.required})
@@ -253,20 +253,20 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
         <div className="flex items-center gap-3 text-sm">
           {/* Active playlist indicator */}
           {activePlaylist && (
-            <div className="text-green-400 hidden sm:block">
+            <div className="text-tokyo-cyan hidden sm:block">
               Playlist: {activePlaylist.name}
             </div>
           )}
           {/* Shuffle indicator for non-admin */}
           {!isAdmin && radioState?.isShuffled && (
-            <div className="text-green-400 flex items-center gap-1">
+            <div className="text-tokyo-cyan flex items-center gap-1">
               <Shuffle size={14} />
               <span>Shuffle</span>
             </div>
           )}
           {/* Skip vote indicator for admin */}
           {isAdmin && skipVotes.current > 0 && (
-            <div className="text-orange-400">
+            <div className="text-tokyo-orange">
               Skip votes: {skipVotes.current}/{skipVotes.required}
             </div>
           )}
@@ -276,22 +276,29 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="text-gray-400 hover:text-white"
+            className="text-tokyo-comment hover:text-tokyo-fg"
           >
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={isMuted ? 0 : volume}
-            onChange={(e) => {
-              setVolume(parseFloat(e.target.value))
-              setIsMuted(false)
-            }}
-            className="w-20 sm:w-24 accent-green-500"
-          />
+          <div className="w-20 sm:w-24 relative h-5 flex items-center group">
+            <div className="absolute w-full h-1 bg-tokyo-fg-gutter rounded-full" />
+            <div
+              className="absolute h-1 bg-tokyo-fg rounded-full pointer-events-none"
+              style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
+            />
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={isMuted ? 0 : volume}
+              onChange={(e) => {
+                setVolume(parseFloat(e.target.value))
+                setIsMuted(false)
+              }}
+              className="absolute w-full h-5 appearance-none bg-transparent cursor-pointer z-10"
+            />
+          </div>
         </div>
       </div>
     </div>

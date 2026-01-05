@@ -1,4 +1,4 @@
-![Hibiki](https://ibb.co/jZs0h5Pr)
+![Hibiki](hibikiv1.png)
 
 Self-hosted YouTube music streaming application built with Next.js 15.
 

@@ -17,7 +17,7 @@ interface Song {
   channelName: string
   thumbnail: string
   duration: number
-  playlists?: { id: string; name: string }[]
+  isDownloaded?: boolean
 }
 
 interface Playlist {
@@ -26,32 +26,35 @@ interface Playlist {
 }
 
 // Server-side data fetching
-async function getSongsWithPlaylists(): Promise<{ songs: Song[]; playlists: Playlist[] }> {
+// Returns only songs that are NOT in any playlist (orphan songs)
+async function getOrphanSongs(): Promise<{ songs: Song[]; playlists: Playlist[] }> {
   const songs = db.getSongs()
   const playlists = db.getPlaylists()
 
-  // Enrich songs with their playlist information
-  const enrichedSongs = songs.map(song => {
-    const songPlaylists = playlists
-      .filter(playlist => {
-        const playlistSongs = db.getPlaylistSongs(playlist.id)
-        return playlistSongs.some(ps => ps.songId === song.id)
-      })
-      .map(playlist => ({ id: playlist.id, name: playlist.name }))
+  // Get all song IDs that are in at least one playlist
+  const songsInPlaylists = new Set<string>()
+  for (const playlist of playlists) {
+    const playlistSongs = db.getPlaylistSongs(playlist.id)
+    for (const ps of playlistSongs) {
+      songsInPlaylists.add(ps.songId)
+    }
+  }
 
-    return {
+  // Filter to only songs NOT in any playlist
+  const orphanSongs = songs
+    .filter(song => !songsInPlaylists.has(song.id))
+    .map(song => ({
       id: song.id,
       youtubeId: song.youtubeId,
       title: song.title,
       channelName: song.channelName,
       thumbnail: song.thumbnail,
       duration: song.duration,
-      playlists: songPlaylists
-    }
-  })
+      isDownloaded: song.isDownloaded ?? false
+    }))
 
   return {
-    songs: enrichedSongs,
+    songs: orphanSongs,
     playlists: playlists.map(p => ({ id: p.id, name: p.name }))
   }
 }
@@ -75,7 +78,7 @@ function HomeLoading() {
 
 // Main page (Server Component)
 export default async function Home() {
-  const { songs, playlists } = await getSongsWithPlaylists()
+  const { songs, playlists } = await getOrphanSongs()
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">

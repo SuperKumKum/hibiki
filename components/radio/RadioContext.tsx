@@ -2,10 +2,11 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
 import { playNotificationSound } from '@/lib/notification'
+import { useAuth } from '@/components/AuthContext'
+import { useToast } from '@/components/Toast'
 import {
   createSession as createSessionAction,
   endSession as endSessionAction,
-  authenticate as authenticateAction,
   removeFromQueue as removeFromQueueAction,
   voteSkip as voteSkipAction,
   voteForPlaylist as voteForPlaylistAction,
@@ -91,7 +92,6 @@ interface RadioContextType {
 
   createSession: (displayName: string, colorIndex: number) => Promise<boolean>
   endSession: () => void
-  authenticate: (password: string) => Promise<boolean>
   addToQueue: (urlOrSongId: string, isUrl?: boolean) => Promise<boolean>
   removeFromQueue: (queueItemId: string) => Promise<boolean>
   voteSkip: () => Promise<boolean>
@@ -111,12 +111,9 @@ const RadioContext = createContext<RadioContextType | undefined>(undefined)
 
 const STORAGE_KEY = 'hibiki_radio_session'
 
-const POLL_INTERVALS = {
-  RADIO_STATE: 2000,
-  HEARTBEAT: 30000
-}
-
 export function RadioProvider({ children }: { children: ReactNode }) {
+  const { isAdmin } = useAuth()
+  const { showToast } = useToast()
   const [session, setSession] = useState<Session | null>(null)
   const [radioState, setRadioState] = useState<RadioState | null>(null)
   const [currentSong, setCurrentSong] = useState<Song | null>(null)
@@ -128,7 +125,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const [activePlaylist, setActivePlaylist] = useState<RadioPlaylist | null>(null)
   const [radioPlaylists, setRadioPlaylists] = useState<RadioPlaylist[]>([])
   const [playlistVotes, setPlaylistVotes] = useState<PlaylistVoteStatus>({})
-  const prevSkipVotesRef = useRef<number>(0)
+  const prevSkipVotesRef = useRef<number>(-1)
   const prevPlaylistVotesRef = useRef<{ [key: string]: number }>({})
 
   const getHeaders = useCallback((): Record<string, string> => {
@@ -162,137 +159,98 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // End session when user closes/leaves the page
+  // Session persistence: Don't disconnect on refresh, only on explicit leave or tab close
+  // The heartbeat system (30s) and server cleanup (5min) handle stale sessions
   useEffect(() => {
     if (!session) return
 
-    const handleBeforeUnload = () => {
-      // Use sendBeacon for reliable delivery when page is closing
-      navigator.sendBeacon(
-        '/api/radio/session/leave',
-        JSON.stringify({ sessionId: session.id })
-      )
-      localStorage.removeItem(STORAGE_KEY)
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        // Page is being hidden (tab switch, minimize, or close)
-        // Send beacon to mark session as potentially leaving
-        navigator.sendBeacon(
-          '/api/radio/session/leave',
-          JSON.stringify({ sessionId: session.id })
-        )
-      }
-    }
-
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    // Note: visibilitychange is commented out as it would disconnect on tab switch
-    // Uncomment if you want more aggressive disconnection
-    // document.addEventListener('visibilitychange', handleVisibilityChange)
+    // We don't use beforeunload anymore because:
+    // 1. Can't distinguish refresh from close
+    // 2. Heartbeat + server cleanup handles stale sessions
+    // 3. Better UX to keep session on refresh
 
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      // document.removeEventListener('visibilitychange', handleVisibilityChange)
+      // Cleanup on unmount (but not on page unload)
     }
   }, [session])
 
-  // Poll for radio state
+  // SSE connection for real-time updates (replaces polling)
   useEffect(() => {
     if (!session) return
 
-    const pollState = async () => {
-      try {
-        const res = await fetch('/api/radio/state', {
-          headers: getHeaders()
-        })
-        if (res.ok) {
-          const data = await res.json()
+    let eventSource: EventSource | null = null
+    let reconnectTimeout: NodeJS.Timeout | null = null
+
+    const connect = () => {
+      // Create EventSource with session header via URL (EventSource doesn't support custom headers)
+      // We'll use a workaround: pass session ID as query param
+      eventSource = new EventSource(`/api/radio/events?sessionId=${session.id}`)
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
           setRadioState(data.radioState)
           setCurrentSong(data.currentSong)
           setSkipVotes(data.skipVotes)
           setQueue(data.queue || [])
           setActivePlaylist(data.activePlaylist || null)
+          setListeners(data.listeners || [])
+          setPlaylistVotes(data.playlistVotes || {})
           setError(null)
+        } catch (err) {
+          console.error('[SSE] Error parsing message:', err)
         }
-      } catch (err) {
-        console.error('Error polling state:', err)
+      }
+
+      eventSource.onerror = () => {
+        console.warn('[SSE] Connection error, reconnecting...')
+        eventSource?.close()
+        // Reconnect after 3 seconds
+        reconnectTimeout = setTimeout(connect, 3000)
       }
     }
 
-    pollState()
-    const interval = setInterval(pollState, POLL_INTERVALS.RADIO_STATE)
+    connect()
 
-    return () => clearInterval(interval)
-  }, [session, getHeaders])
-
-  // Poll for listeners and playlist votes (less frequent)
-  useEffect(() => {
-    if (!session) return
-
-    const pollListenersAndVotes = async () => {
-      try {
-        const [listenersRes, votesRes] = await Promise.all([
-          fetch('/api/radio/sessions'),
-          fetch('/api/radio/playlist-vote', { headers: getHeaders() })
-        ])
-
-        if (listenersRes.ok) {
-          const data = await listenersRes.json()
-          setListeners(data)
-        }
-
-        if (votesRes.ok) {
-          const data = await votesRes.json()
-          setPlaylistVotes(data.votes || {})
-        }
-      } catch (err) {
-        console.error('Error polling listeners/votes:', err)
-      }
+    return () => {
+      eventSource?.close()
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
     }
+  }, [session])
 
-    pollListenersAndVotes()
-    const interval = setInterval(pollListenersAndVotes, 5000)
-
-    return () => clearInterval(interval)
-  }, [session, getHeaders])
-
-  // Heartbeat
+  // Play notification sound and show toast when skip votes increase
   useEffect(() => {
-    if (!session) return
-
-    const heartbeat = async () => {
-      try {
-        await fetch('/api/radio/session/heartbeat', {
-          method: 'POST',
-          headers: getHeaders()
-        })
-      } catch (err) {
-        console.error('Heartbeat failed:', err)
-      }
-    }
-
-    const interval = setInterval(heartbeat, POLL_INTERVALS.HEARTBEAT)
-
-    return () => clearInterval(interval)
-  }, [session, getHeaders])
-
-  // Play notification sound when votes increase (from other users)
-  useEffect(() => {
-    // Check for new skip votes
-    if (skipVotes.current > prevSkipVotesRef.current && prevSkipVotesRef.current > 0) {
-      playNotificationSound()
-    }
-    prevSkipVotesRef.current = skipVotes.current
-  }, [skipVotes.current])
-
-  // Play notification sound when playlist votes increase
-  useEffect(() => {
-    for (const [playlistId, vote] of Object.entries(playlistVotes)) {
-      const prevCount = prevPlaylistVotesRef.current[playlistId] || 0
-      if (vote.count > prevCount && prevCount > 0) {
+    // Check for new skip votes (notify from first vote, but not on initial load)
+    if (skipVotes.current > prevSkipVotesRef.current && prevSkipVotesRef.current !== -1) {
+      // Don't notify if we just voted ourselves
+      if (!skipVotes.hasVoted || skipVotes.current > 1) {
         playNotificationSound()
-        break // Only play once even if multiple votes came in
+        showToast(`Vote to skip: ${skipVotes.current}/${skipVotes.required}`, 'info')
+      }
+    }
+    // Initialize ref on first render (use -1 to distinguish from 0 votes)
+    if (prevSkipVotesRef.current === -1 && skipVotes.current >= 0) {
+      prevSkipVotesRef.current = skipVotes.current
+    } else {
+      prevSkipVotesRef.current = skipVotes.current
+    }
+  }, [skipVotes.current, skipVotes.required, skipVotes.hasVoted, showToast])
+
+  // Play notification sound and show toast when playlist votes increase
+  useEffect(() => {
+    let notified = false
+    for (const [playlistId, vote] of Object.entries(playlistVotes)) {
+      const prevCount = prevPlaylistVotesRef.current[playlistId] ?? -1
+      // Notify from first vote, but not on initial load
+      if (vote.count > prevCount && prevCount !== -1 && !notified) {
+        // Don't notify if we just voted ourselves
+        if (!vote.hasVoted || vote.count > 1) {
+          const playlist = radioPlaylists.find(p => p.id === playlistId)
+          const playlistName = playlist?.name || 'playlist'
+          playNotificationSound()
+          showToast(`Vote for "${playlistName}": ${vote.count} vote(s)`, 'info')
+          notified = true
+        }
       }
     }
     // Update ref with current counts
@@ -301,7 +259,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       newCounts[playlistId] = vote.count
     }
     prevPlaylistVotesRef.current = newCounts
-  }, [playlistVotes])
+  }, [playlistVotes, radioPlaylists, showToast])
 
   const createSession = async (displayName: string, colorIndex: number): Promise<boolean> => {
     try {
@@ -330,21 +288,6 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY)
   }
 
-  const authenticate = async (password: string): Promise<boolean> => {
-    try {
-      const result = await authenticateAction(password)
-
-      if (result.success && result.data) {
-        setSession(result.data)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data))
-        return true
-      }
-      return false
-    } catch (err) {
-      console.error('Error authenticating:', err)
-      return false
-    }
-  }
 
   const addToQueue = async (urlOrSongId: string, isUrl = true): Promise<boolean> => {
     try {
@@ -529,14 +472,13 @@ export function RadioProvider({ children }: { children: ReactNode }) {
         listeners,
         skipVotes,
         playlistVotes,
-        isAdmin: session?.isAdmin ?? false,
+        isAdmin,
         isConnected,
         error,
         activePlaylist,
         radioPlaylists,
         createSession,
         endSession,
-        authenticate,
         addToQueue,
         removeFromQueue,
         voteSkip,

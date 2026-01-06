@@ -202,3 +202,25 @@ export async function removeFromPlaylist(playlistId: string, songId: string): Pr
     return { success: false, error: 'Failed to remove from playlist' }
   }
 }
+
+// Remove multiple songs from playlist
+export async function removeMultipleFromPlaylist(playlistId: string, songIds: string[]): Promise<ActionResult<{ removed: number }>> {
+  try {
+    if (!playlistId || !songIds || songIds.length === 0) {
+      return { success: false, error: 'Playlist ID and Song IDs are required' }
+    }
+
+    let removed = 0
+    for (const songId of songIds) {
+      db.removeSongFromPlaylist(playlistId, songId)
+      removed++
+    }
+
+    revalidatePath('/')
+    revalidatePath('/playlists')
+    return { success: true, data: { removed } }
+  } catch (error) {
+    console.error('Error removing songs from playlist:', error)
+    return { success: false, error: 'Failed to remove songs from playlist' }
+  }
+}

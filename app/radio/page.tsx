@@ -1,10 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Radio, Crown, LogOut } from 'lucide-react'
+import { Radio, LogOut } from 'lucide-react'
 import { RadioProvider, useRadio } from '@/components/radio/RadioContext'
 import NamePickerModal from '@/components/radio/NamePickerModal'
-import AdminLoginModal from '@/components/radio/AdminLoginModal'
 import RadioPlayer from '@/components/radio/RadioPlayer'
 import RadioQueue from '@/components/radio/RadioQueue'
 import ListenersList from '@/components/radio/ListenersList'
@@ -19,12 +18,10 @@ function RadioContent() {
     isAdmin,
     createSession,
     endSession,
-    authenticate,
     voteSkip
   } = useRadio()
 
   const [isJoining, setIsJoining] = useState(false)
-  const [showAdminLogin, setShowAdminLogin] = useState(false)
   const { showToast } = useToast()
 
   const handleJoin = async (name: string, colorIndex: number) => {
@@ -36,14 +33,6 @@ function RadioContent() {
     } else {
       showToast('Failed to join', 'error')
     }
-  }
-
-  const handleAdminAuth = async (password: string) => {
-    const success = await authenticate(password)
-    if (success) {
-      showToast('Admin mode enabled', 'success')
-    }
-    return success
   }
 
   const handleVoteSkip = async () => {
@@ -101,24 +90,13 @@ function RadioContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {!isAdmin && (
-              <button
-                onClick={() => setShowAdminLogin(true)}
-                className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
-              >
-                <Crown size={16} />
-                <span className="hidden sm:inline">Admin</span>
-              </button>
-            )}
-            <button
-              onClick={handleLeave}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-            >
-              <LogOut size={16} />
-              <span className="hidden sm:inline">Leave</span>
-            </button>
-          </div>
+          <button
+            onClick={handleLeave}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+          >
+            <LogOut size={16} />
+            <span className="hidden sm:inline">Leave</span>
+          </button>
         </div>
       </div>
 
@@ -139,12 +117,6 @@ function RadioContent() {
         </div>
       </main>
 
-      {showAdminLogin && (
-        <AdminLoginModal
-          onSubmit={handleAdminAuth}
-          onClose={() => setShowAdminLogin(false)}
-        />
-      )}
     </>
   )
 }

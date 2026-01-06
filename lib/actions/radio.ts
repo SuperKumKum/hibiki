@@ -2,9 +2,10 @@
 
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-import { timingSafeEqual } from 'crypto'
+import { verifyToken } from '@/lib/auth'
 
 const SESSION_COOKIE = 'hibiki_session_id'
+const ADMIN_COOKIE = 'hibiki_admin_token'
 
 // Types
 interface Session {
@@ -44,25 +45,21 @@ async function requireSession(): Promise<Session> {
   return session
 }
 
+async function isAdminFromCookie(): Promise<boolean> {
+  const cookieStore = await cookies()
+  const token = cookieStore.get(ADMIN_COOKIE)?.value
+  if (!token) return false
+  const payload = verifyToken(token)
+  return payload?.isAdmin === true
+}
+
 async function requireAdmin(): Promise<Session> {
   const session = await requireSession()
-  if (!session.isAdmin) {
+  const isAdmin = await isAdminFromCookie()
+  if (!isAdmin) {
     throw new Error('Admin access required')
   }
   return session
-}
-
-function safeCompare(a: string, b: string): boolean {
-  try {
-    const bufA = Buffer.from(a)
-    const bufB = Buffer.from(b)
-    if (bufA.length !== bufB.length) {
-      return false
-    }
-    return timingSafeEqual(bufA, bufB)
-  } catch {
-    return false
-  }
 }
 
 function calculateCurrentPosition(state: {
@@ -124,40 +121,6 @@ export async function endSession(): Promise<ActionResult> {
   }
 }
 
-export async function authenticate(password: string): Promise<ActionResult<Session>> {
-  try {
-    const session = await requireSession()
-    const adminPassword = process.env.ADMIN_PASSWORD
-
-    if (!adminPassword) {
-      return { success: false, error: 'Admin password not configured' }
-    }
-
-    if (!password || !safeCompare(password, adminPassword)) {
-      return { success: false, error: 'Invalid password' }
-    }
-
-    const updatedSession = db.updateSession(session.id, { isAdmin: true })
-    if (!updatedSession) {
-      return { success: false, error: 'Failed to update session' }
-    }
-    return { success: true, data: updatedSession }
-  } catch (error) {
-    console.error('Error authenticating:', error)
-    return { success: false, error: 'Failed to authenticate' }
-  }
-}
-
-export async function revokeAdmin(): Promise<ActionResult> {
-  try {
-    const session = await requireSession()
-    db.updateSession(session.id, { isAdmin: false })
-    return { success: true }
-  } catch (error) {
-    console.error('Error revoking admin:', error)
-    return { success: false, error: 'Failed to revoke admin' }
-  }
-}
 
 // Queue Actions
 export async function removeFromQueue(queueItemId: string): Promise<ActionResult> {

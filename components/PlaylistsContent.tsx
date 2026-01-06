@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect, useTransition, useRef } from 'react'
-import { Plus, Trash2, Music, Play, Menu, X, Download, Loader2, CheckCircle, HardDrive, Upload } from 'lucide-react'
+import { Plus, Trash2, Music, Play, Menu, X, Download, Loader2, CheckCircle, HardDrive, Upload, CheckSquare, Square } from 'lucide-react'
 import Image from 'next/image'
 import { useToast } from '@/components/Toast'
 import { usePlayer } from '@/components/PlayerContext'
-import { createPlaylist, deletePlaylist, removeFromPlaylist, addToPlaylist } from '@/lib/actions/library'
+import { createPlaylist, deletePlaylist, removeFromPlaylist, removeMultipleFromPlaylist } from '@/lib/actions/library'
 
 interface Song {
   id: string
@@ -207,6 +207,9 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
   const [isPending, startTransition] = useTransition()
   const [downloadStatus, setDownloadStatus] = useState<DownloadStatus | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [selectedSongs, setSelectedSongs] = useState<Set<string>>(new Set())
+  const [downloadingSongIds, setDownloadingSongIds] = useState<Set<string>>(new Set())
   const { showToast } = useToast()
   const { playSong } = usePlayer()
 
@@ -376,6 +379,125 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
     }
   }
 
+  // Individual song download
+  const handleDownloadSong = async (song: Song) => {
+    if (downloadingSongIds.has(song.id) || song.isDownloaded) return
+
+    setDownloadingSongIds(prev => new Set(prev).add(song.id))
+
+    try {
+      const response = await fetch(`/api/songs/${song.id}/download`, { method: 'POST' })
+      if (response.ok) {
+        if (selectedPlaylist) {
+          await refreshPlaylist(selectedPlaylist.id)
+        }
+        showToast(`Downloaded: ${song.title}`, 'success')
+      } else {
+        const error = await response.json()
+        showToast(error.error || 'Download failed', 'error')
+      }
+    } catch {
+      showToast('Download failed', 'error')
+    } finally {
+      setDownloadingSongIds(prev => {
+        const next = new Set(prev)
+        next.delete(song.id)
+        return next
+      })
+    }
+  }
+
+  // Selection mode functions
+  const toggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode)
+    setSelectedSongs(new Set())
+  }
+
+  const toggleSongSelection = (songId: string) => {
+    const newSelected = new Set(selectedSongs)
+    if (newSelected.has(songId)) {
+      newSelected.delete(songId)
+    } else {
+      newSelected.add(songId)
+    }
+    setSelectedSongs(newSelected)
+  }
+
+  const selectAllSongs = () => {
+    if (!selectedPlaylist) return
+    if (selectedSongs.size === selectedPlaylist.playlistSongs.length) {
+      setSelectedSongs(new Set())
+    } else {
+      setSelectedSongs(new Set(selectedPlaylist.playlistSongs.map(ps => ps.song.id)))
+    }
+  }
+
+  const deleteSelectedSongs = async () => {
+    if (!selectedPlaylist || selectedSongs.size === 0) return
+
+    startTransition(async () => {
+      const result = await removeMultipleFromPlaylist(selectedPlaylist.id, Array.from(selectedSongs))
+      if (result.success && result.data) {
+        const updatedPlaylistSongs = selectedPlaylist.playlistSongs.filter(ps => !selectedSongs.has(ps.song.id))
+        const updatedPlaylist = { ...selectedPlaylist, playlistSongs: updatedPlaylistSongs }
+        setSelectedPlaylist(updatedPlaylist)
+        setPlaylists(prev => prev.map(p => p.id === selectedPlaylist.id ? updatedPlaylist : p))
+        showToast(`${result.data.removed} song${result.data.removed !== 1 ? 's' : ''} removed`, 'success')
+        setSelectedSongs(new Set())
+        setIsSelectionMode(false)
+      } else if (!result.success) {
+        showToast(result.error, 'error')
+      }
+    })
+  }
+
+  const downloadSelectedSongs = async () => {
+    if (!selectedPlaylist || selectedSongs.size === 0) return
+
+    const songsToDownload = selectedPlaylist.playlistSongs
+      .filter(ps => selectedSongs.has(ps.song.id) && !ps.song.isDownloaded)
+      .map(ps => ps.song)
+
+    if (songsToDownload.length === 0) {
+      showToast('All selected songs are already downloaded', 'success')
+      return
+    }
+
+    let downloaded = 0
+    let failed = 0
+
+    for (const song of songsToDownload) {
+      setDownloadingSongIds(prev => new Set(prev).add(song.id))
+      try {
+        const response = await fetch(`/api/songs/${song.id}/download`, { method: 'POST' })
+        if (response.ok) {
+          downloaded++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      } finally {
+        setDownloadingSongIds(prev => {
+          const next = new Set(prev)
+          next.delete(song.id)
+          return next
+        })
+      }
+    }
+
+    await refreshPlaylist(selectedPlaylist.id)
+
+    if (failed > 0) {
+      showToast(`Downloaded ${downloaded} songs, ${failed} failed`, 'error')
+    } else {
+      showToast(`Downloaded ${downloaded} song${downloaded !== 1 ? 's' : ''}`, 'success')
+    }
+
+    setSelectedSongs(new Set())
+    setIsSelectionMode(false)
+  }
+
   return (
     <>
       {/* Mobile header */}
@@ -496,6 +618,15 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
                       <span className="text-gray-400">{getDownloadedCount(selectedPlaylist)}/{selectedPlaylist.playlistSongs.length} local</span>
                     )}
                   </div>
+                  {!isSelectionMode && selectedPlaylist.playlistSongs.length > 0 && (
+                    <button
+                      onClick={toggleSelectionMode}
+                      className="flex items-center gap-2 px-4 py-2 bg-tokyo-red text-white rounded-lg hover:bg-tokyo-magenta transition-colors"
+                    >
+                      <CheckSquare size={18} />
+                      Select
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowUploadModal(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
@@ -517,6 +648,55 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
                 </div>
               </div>
 
+              {/* Selection mode bar */}
+              {isSelectionMode && (
+                <div className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 mb-4 flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={toggleSelectionMode}
+                      disabled={isPending}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                    >
+                      <X size={16} />
+                      Cancel
+                    </button>
+                    <span className="text-gray-300 text-sm">
+                      {selectedSongs.size} of {selectedPlaylist.playlistSongs.length} selected
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={selectAllSongs}
+                      disabled={isPending}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                    >
+                      {selectedSongs.size === selectedPlaylist.playlistSongs.length ? <CheckSquare size={16} /> : <Square size={16} />}
+                      {selectedSongs.size === selectedPlaylist.playlistSongs.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    {selectedSongs.size > 0 && (
+                      <>
+                        <button
+                          onClick={downloadSelectedSongs}
+                          disabled={isPending || downloadingSongIds.size > 0}
+                          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                        >
+                          {downloadingSongIds.size > 0 ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                          Download ({selectedSongs.size})
+                        </button>
+                        <button
+                          onClick={deleteSelectedSongs}
+                          disabled={isPending}
+                          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                        >
+                          <Trash2 size={16} />
+                          {isPending ? 'Removing...' : `Remove (${selectedSongs.size})`}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Song list (list view) */}
               {selectedPlaylist.playlistSongs.length === 0 ? (
                 <div className="text-center py-12">
@@ -529,18 +709,41 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
                   {selectedPlaylist.playlistSongs.map((ps, index) => (
                     <div
                       key={ps.id}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition-colors group"
+                      onClick={isSelectionMode ? () => toggleSongSelection(ps.song.id) : undefined}
+                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors group ${
+                        isSelectionMode
+                          ? selectedSongs.has(ps.song.id)
+                            ? 'bg-blue-500/20 border border-blue-500/50'
+                            : 'bg-gray-800/50 hover:bg-gray-800 cursor-pointer'
+                          : 'bg-gray-800/50 hover:bg-gray-800'
+                      }`}
                     >
-                      <span className="text-gray-500 text-sm w-6 text-right">{index + 1}</span>
+                      {/* Selection checkbox or row number */}
+                      {isSelectionMode ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSongSelection(ps.song.id) }}
+                          className="p-1 text-gray-400 hover:text-white"
+                        >
+                          {selectedSongs.has(ps.song.id) ? (
+                            <CheckSquare size={20} className="text-blue-400" />
+                          ) : (
+                            <Square size={20} />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-gray-500 text-sm w-6 text-right">{index + 1}</span>
+                      )}
 
                       <div className="relative w-12 h-12 rounded overflow-hidden bg-gray-900 flex-shrink-0">
                         <Image src={ps.song.thumbnail} alt={ps.song.title} fill className="object-cover" unoptimized />
-                        <button
-                          onClick={() => handlePlaySong(ps.song, index)}
-                          className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                        >
-                          <Play size={20} fill="white" className="text-white ml-0.5" />
-                        </button>
+                        {!isSelectionMode && (
+                          <button
+                            onClick={() => handlePlaySong(ps.song, index)}
+                            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                          >
+                            <Play size={20} fill="white" className="text-white ml-0.5" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -549,18 +752,33 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {ps.song.isDownloaded && (
+                        {ps.song.isDownloaded ? (
                           <span title="Downloaded locally">
                             <HardDrive size={16} className="text-green-400" />
                           </span>
+                        ) : !isSelectionMode && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDownloadSong(ps.song) }}
+                            disabled={downloadingSongIds.has(ps.song.id)}
+                            className="p-2 text-gray-500 hover:text-blue-400 disabled:opacity-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Download this song"
+                          >
+                            {downloadingSongIds.has(ps.song.id) ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Download size={16} />
+                            )}
+                          </button>
                         )}
                         <span className="text-gray-500 text-sm">{formatDuration(ps.song.duration)}</span>
-                        <button
-                          onClick={() => handleRemoveSong(ps.song.id)}
-                          className="p-2 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {!isSelectionMode && (
+                          <button
+                            onClick={() => handleRemoveSong(ps.song.id)}
+                            className="p-2 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

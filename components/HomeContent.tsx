@@ -15,7 +15,7 @@ interface Song {
   channelName: string
   thumbnail: string
   duration: number
-  playlists?: Playlist[]
+  isDownloaded?: boolean
 }
 
 interface Playlist {

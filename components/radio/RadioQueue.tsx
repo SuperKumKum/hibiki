@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Image from 'next/image'
-import { Plus, X, Music, Trash2, Play } from 'lucide-react'
+import { Plus, X, Music, Trash2, Play, Search, Loader2 } from 'lucide-react'
 import { useRadio } from './RadioContext'
 import { AVATAR_COLORS } from './NamePickerModal'
 
@@ -12,24 +12,90 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+interface SearchResult {
+  id: string
+  title: string
+  channel: string
+  thumbnail: string
+  duration: number
+}
+
+function isYouTubeUrl(input: string): boolean {
+  const trimmed = input.trim().toLowerCase()
+  return (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.includes('youtube.com') ||
+    trimmed.includes('youtu.be')
+  )
+}
+
 interface AddSongModalProps {
   onClose: () => void
   onAdd: (url: string) => Promise<boolean>
 }
 
 function AddSongModal({ onClose, onAdd }: AddSongModalProps) {
-  const [url, setUrl] = useState('')
+  const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim() || isYouTubeUrl(query)) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
+      if (res.ok) {
+        const results = await res.json()
+        setSearchResults(results)
+      }
+    } catch (error) {
+      console.error('Search error:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setInput(value)
+    setError('')
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+
+    if (isYouTubeUrl(value)) {
+      setSearchResults([])
+      return
+    }
+
+    if (value.trim().length >= 2) {
+      searchTimeoutRef.current = setTimeout(() => {
+        handleSearch(value)
+      }, 500)
+    } else {
+      setSearchResults([])
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!url.trim()) return
+    if (!input.trim() || !isYouTubeUrl(input)) return
 
     setIsLoading(true)
     setError('')
 
-    const success = await onAdd(url.trim())
+    const success = await onAdd(input.trim())
 
     if (success) {
       onClose()
@@ -39,9 +105,34 @@ function AddSongModal({ onClose, onAdd }: AddSongModalProps) {
     }
   }
 
+  const handleSelectResult = async (result: SearchResult) => {
+    const url = `https://www.youtube.com/watch?v=${result.id}`
+    setIsLoading(true)
+    setError('')
+
+    const success = await onAdd(url)
+
+    if (success) {
+      onClose()
+    } else {
+      setError('Failed to add song.')
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const isUrl = isYouTubeUrl(input)
+
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-xl p-6 w-full max-w-md border border-gray-700 relative">
+      <div className="bg-gray-900 rounded-xl p-6 w-full max-w-lg border border-gray-700 relative max-h-[90vh] flex flex-col">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-white"
@@ -56,29 +147,103 @@ function AddSongModal({ onClose, onAdd }: AddSongModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              YouTube URL
+              Search YouTube or paste URL
             </label>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://youtube.com/watch?v=..."
-              className="w-full bg-gray-800 border border-gray-600 rounded-lg py-3 px-4 text-white placeholder-gray-500 focus:outline-none focus:border-green-500"
-              autoFocus
-            />
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                <Search size={18} />
+              </div>
+              <input
+                type="text"
+                value={input}
+                onChange={handleInputChange}
+                placeholder="Search or paste YouTube URL..."
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg py-3 pl-10 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-green-500"
+                autoFocus
+                disabled={isLoading}
+              />
+            </div>
             {error && (
               <p className="text-red-500 text-sm mt-2">{error}</p>
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={!url.trim() || isLoading}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-colors"
-          >
-            {isLoading ? 'Adding...' : 'Add to Queue'}
-          </button>
+          {isUrl && (
+            <button
+              type="submit"
+              disabled={!input.trim() || isLoading}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus size={18} />
+                  Add to Queue
+                </>
+              )}
+            </button>
+          )}
         </form>
+
+        {/* Search Results */}
+        {!isUrl && (isSearching || searchResults.length > 0) && (
+          <div className="mt-4 flex-1 overflow-hidden flex flex-col">
+            {isSearching ? (
+              <div className="flex items-center justify-center gap-3 py-8 text-gray-400">
+                <Loader2 className="animate-spin" size={24} />
+                <span>Searching YouTube...</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-gray-500 text-sm mb-2">
+                  {searchResults.length} results found
+                </p>
+                <div className="overflow-y-auto flex-1 space-y-1 max-h-72">
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      onClick={() => handleSelectResult(result)}
+                      disabled={isLoading}
+                      className="w-full flex items-center gap-3 p-2 hover:bg-gray-800 rounded-lg transition-colors text-left group disabled:opacity-50"
+                    >
+                      <div className="relative w-20 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
+                        <Image
+                          src={result.thumbnail}
+                          alt={result.title}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                        <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-white text-xs px-1 rounded">
+                          {formatDuration(result.duration)}
+                        </span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-white text-sm font-medium truncate" title={result.title}>
+                          {result.title}
+                        </h4>
+                        <p className="text-gray-500 text-xs truncate" title={result.channel}>
+                          {result.channel}
+                        </p>
+                      </div>
+
+                      <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="bg-green-600 rounded-full p-1.5">
+                          <Plus size={14} className="text-white" />
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

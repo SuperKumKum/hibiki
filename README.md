@@ -1,4 +1,4 @@
-![Hibiki](hibikiv1.png)
+![Hibiki](hibiki_v2.png)
 
 Self-hosted YouTube music streaming application built with Next.js 15.
 
@@ -31,7 +31,7 @@ Self-hosted YouTube music streaming application built with Next.js 15.
 - Toast notifications for user feedback
 
 ### Technical
-- Simple JSON file storage - no database setup required
+- sqlite3 SQL database to manage songs, playlists, mapping of storage and states of plays
 - Easy Docker deployment
 - TypeScript + Tailwind CSS
 

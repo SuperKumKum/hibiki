@@ -1,262 +1,393 @@
-import { spawn } from 'child_process'
-import { join } from 'path'
+import { spawn } from "child_process";
+import { join } from "path";
+import { existsSync } from "fs";
 
 // Detect yt-dlp command based on environment
 const getYtDlpCommand = () => {
   // In development on Windows with venv
-  if (process.platform === 'win32' && process.env.NODE_ENV !== 'production') {
-    return join(process.cwd(), '.venv', 'Scripts', 'yt-dlp.exe')
+  if (process.platform === "win32" && process.env.NODE_ENV !== "production") {
+    return join(process.cwd(), ".venv", "Scripts", "yt-dlp.exe");
   }
   // In production or Unix systems
-  return 'yt-dlp'
-}
+  return "yt-dlp";
+};
 
-const YT_DLP = getYtDlpCommand()
+const YT_DLP = getYtDlpCommand();
+
+// Get cookies file path - check multiple locations
+const getCookiesPath = (): string | null => {
+  const cwd = process.cwd();
+  console.log("[yt-dlp] Current working directory:", cwd);
+
+  const possiblePaths = [
+    join(cwd, "data", "cookies.txt"),
+    join(cwd, "cookies.txt"),
+    "/data/cookies.txt", // Docker volume mount
+  ];
+
+  console.log("[yt-dlp] Checking cookie paths:", possiblePaths);
+
+  for (const cookiePath of possiblePaths) {
+    const exists = existsSync(cookiePath);
+    console.log(`[yt-dlp] Checking ${cookiePath}: ${exists ? "EXISTS" : "NOT FOUND"}`);
+    if (exists) {
+      console.log("[yt-dlp] Using cookies file:", cookiePath);
+      return cookiePath;
+    }
+  }
+
+  console.log("[yt-dlp] No cookies file found, some videos may not work");
+  return null;
+};
+
+// Get common args including cookies and JS runtime
+const getCommonArgs = (): string[] => {
+  const args: string[] = [];
+
+  const cookiesPath = getCookiesPath();
+  if (cookiesPath) {
+    args.push("--cookies", cookiesPath);
+  }
+
+  // Enable remote challenge solver script for YouTube signature decryption
+  args.push("--remote-components", "ejs:github");
+  args.push("--js-runtimes", "node");
+
+  return args;
+};
 
 // Helper function to execute yt-dlp with arguments
-async function executeYtDlp(args: string[], timeout: number = 30000): Promise<string> {
+async function executeYtDlp(
+  args: string[],
+  timeout: number = 30000,
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    console.log('[yt-dlp] Executing:', YT_DLP, 'with args:', args)
-    const childProcess = spawn(YT_DLP, args)
-    let stdout = ''
-    let stderr = ''
-    let isResolved = false
+    console.log("[yt-dlp] Executing:", YT_DLP, "with args:", args);
+    const childProcess = spawn(YT_DLP, args);
+    let stdout = "";
+    let stderr = "";
+    let isResolved = false;
 
     // Set timeout
     const timeoutId = setTimeout(() => {
       if (!isResolved) {
-        console.error('[yt-dlp] Timeout reached, killing process')
-        childProcess.kill()
-        reject(new Error('Process timeout after ' + timeout + 'ms'))
+        console.error("[yt-dlp] Timeout reached, killing process");
+        childProcess.kill();
+        reject(new Error("Process timeout after " + timeout + "ms"));
       }
-    }, timeout)
+    }, timeout);
 
-    childProcess.stdout.on('data', (data) => {
-      stdout += data.toString()
-    })
+    childProcess.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
 
-    childProcess.stderr.on('data', (data) => {
-      stderr += data.toString()
-    })
+    childProcess.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
 
-    childProcess.on('close', (code) => {
-      if (isResolved) return
-      isResolved = true
-      clearTimeout(timeoutId)
-      
-      console.log('[yt-dlp] Exit code:', code)
-      if (stderr) console.log('[yt-dlp] Stderr:', stderr)
+    childProcess.on("close", (code) => {
+      if (isResolved) return;
+      isResolved = true;
+      clearTimeout(timeoutId);
+
+      console.log("[yt-dlp] Exit code:", code);
+      if (stderr) console.log("[yt-dlp] Stderr:", stderr);
       if (code === 0) {
-        console.log('[yt-dlp] Success, output length:', stdout.length)
-        resolve(stdout)
+        console.log("[yt-dlp] Success, output length:", stdout.length);
+        resolve(stdout);
       } else {
-        console.error('[yt-dlp] Error:', stderr || `Process exited with code ${code}`)
-        reject(new Error(stderr || `Process exited with code ${code}`))
+        console.error(
+          "[yt-dlp] Error:",
+          stderr || `Process exited with code ${code}`,
+        );
+        reject(new Error(stderr || `Process exited with code ${code}`));
       }
-    })
+    });
 
-    childProcess.on('error', (error) => {
-      if (isResolved) return
-      isResolved = true
-      clearTimeout(timeoutId)
-      console.error('[yt-dlp] Spawn error:', error)
-      reject(error)
-    })
-  })
+    childProcess.on("error", (error) => {
+      if (isResolved) return;
+      isResolved = true;
+      clearTimeout(timeoutId);
+      console.error("[yt-dlp] Spawn error:", error);
+      reject(error);
+    });
+  });
 }
 
 export interface YtDlpMetadata {
-  id: string
-  title: string
-  channel: string
-  thumbnail: string
-  duration: number
+  id: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: number;
 }
 
 export async function getYoutubeMetadata(url: string): Promise<YtDlpMetadata> {
   try {
-    console.log('[getYoutubeMetadata] Fetching metadata for URL:', url)
-    const stdout = await executeYtDlp([
-      '--dump-json',
-      '--no-warnings',
-      '--no-playlist',  // Only extract the video, not the playlist
-      '--flat-playlist',  // Don't extract playlist info
-      url
-    ], 60000)  // 60 second timeout
-    
-    const data = JSON.parse(stdout)
-    console.log('[getYoutubeMetadata] Successfully parsed metadata for:', data.title)
-    console.log('[getYoutubeMetadata] Available thumbnails:', data.thumbnails?.length || 0)
-    
+    console.log("[getYoutubeMetadata] Fetching metadata for URL:", url);
+    const stdout = await executeYtDlp(
+      [
+        ...getCommonArgs(),
+        "--dump-json",
+        "--no-warnings",
+        "--no-playlist", // Only extract the video, not the playlist
+        "--flat-playlist", // Don't extract playlist info
+        url,
+      ],
+      60000,
+    ); // 60 second timeout
+
+    const data = JSON.parse(stdout);
+    console.log(
+      "[getYoutubeMetadata] Successfully parsed metadata for:",
+      data.title,
+    );
+    console.log(
+      "[getYoutubeMetadata] Available thumbnails:",
+      data.thumbnails?.length || 0,
+    );
+
     // Get best thumbnail URL - prefer high quality thumbnails
-    let thumbnail = ''
-    if (data.thumbnails && Array.isArray(data.thumbnails) && data.thumbnails.length > 0) {
+    let thumbnail = "";
+    if (
+      data.thumbnails &&
+      Array.isArray(data.thumbnails) &&
+      data.thumbnails.length > 0
+    ) {
       // Find the highest quality thumbnail
       const bestThumbnail = data.thumbnails
         .filter((t: any) => t.url)
         .sort((a: any, b: any) => {
-          const widthA = a.width || 0
-          const widthB = b.width || 0
-          return widthB - widthA
-        })[0]
-      thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || ''
+          const widthA = a.width || 0;
+          const widthB = b.width || 0;
+          return widthB - widthA;
+        })[0];
+      thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || "";
     }
-    
+
     // Fallback to standard YouTube thumbnail URLs
     if (!thumbnail && data.id) {
-      thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`
+      thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`;
     }
-    
-    console.log('[getYoutubeMetadata] Selected thumbnail URL:', thumbnail)
-    
+
+    console.log("[getYoutubeMetadata] Selected thumbnail URL:", thumbnail);
+
     return {
       id: data.id,
       title: data.title,
-      channel: data.channel || data.uploader || 'Unknown',
+      channel: data.channel || data.uploader || "Unknown",
       thumbnail,
       duration: data.duration || 0,
-    }
+    };
   } catch (error) {
-    console.error('[getYoutubeMetadata] Error:', error)
-    throw new Error(`Failed to get metadata: ${error}`)
+    console.error("[getYoutubeMetadata] Error:", error);
+    throw new Error(`Failed to get metadata: ${error}`);
   }
 }
 
 export async function getStreamUrl(youtubeId: string): Promise<string> {
   try {
     const stdout = await executeYtDlp([
-      '-g',
-      '-f',
-      'bestaudio',
-      `https://www.youtube.com/watch?v=${youtubeId}`
-    ])
-    
-    return stdout.trim()
+      ...getCommonArgs(),
+      "-g",
+      "-f",
+      "bestaudio",
+      `https://www.youtube.com/watch?v=${youtubeId}`,
+    ]);
+
+    return stdout.trim();
   } catch (error) {
-    throw new Error(`Failed to get stream URL: ${error}`)
+    throw new Error(`Failed to get stream URL: ${error}`);
   }
 }
 
 export async function updateYtDlp(): Promise<string> {
   try {
-    const stdout = await executeYtDlp(['-U'])
-    return stdout.trim()
+    const stdout = await executeYtDlp(["-U"]);
+    return stdout.trim();
   } catch (error) {
-    throw new Error(`Failed to update yt-dlp: ${error}`)
+    throw new Error(`Failed to update yt-dlp: ${error}`);
   }
 }
 
 export interface SearchResult {
-  id: string
-  title: string
-  channel: string
-  thumbnail: string
-  duration: number
+  id: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: number;
 }
 
-export async function searchYoutube(query: string, limit: number = 10): Promise<SearchResult[]> {
+export async function searchYoutube(
+  query: string,
+  limit: number = 10,
+): Promise<SearchResult[]> {
   try {
-    console.log('[searchYoutube] Searching for:', query)
-    const stdout = await executeYtDlp([
-      '--dump-json',
-      '--no-warnings',
-      '--flat-playlist',
-      `ytsearch${limit}:${query}`
-    ], 60000)  // 60 second timeout
+    console.log("[searchYoutube] Searching for:", query);
+    const stdout = await executeYtDlp(
+      [
+        ...getCommonArgs(),
+        "--dump-json",
+        "--no-warnings",
+        "--flat-playlist",
+        `ytsearch${limit}:${query}`,
+      ],
+      60000,
+    ); // 60 second timeout
 
     // Split by newlines and parse each JSON object
-    const lines = stdout.trim().split('\n').filter(line => line.trim())
-    const results = lines.map(line => {
-      try {
-        return JSON.parse(line)
-      } catch {
-        return null
-      }
-    }).filter((data: any) => data && data.id)
+    const lines = stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.trim());
+    const results = lines
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((data: any) => data && data.id);
 
-    console.log('[searchYoutube] Found', results.length, 'results')
+    console.log("[searchYoutube] Found", results.length, "results");
 
     return results.map((data: any) => {
-      let thumbnail = ''
-      if (data.thumbnails && Array.isArray(data.thumbnails) && data.thumbnails.length > 0) {
+      let thumbnail = "";
+      if (
+        data.thumbnails &&
+        Array.isArray(data.thumbnails) &&
+        data.thumbnails.length > 0
+      ) {
         const bestThumbnail = data.thumbnails
           .filter((t: any) => t.url)
-          .sort((a: any, b: any) => (b.width || 0) - (a.width || 0))[0]
-        thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || ''
+          .sort((a: any, b: any) => (b.width || 0) - (a.width || 0))[0];
+        thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || "";
       }
 
       if (!thumbnail && data.id) {
-        thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`
+        thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`;
       }
 
       return {
         id: data.id,
-        title: data.title || 'Unknown',
-        channel: data.channel || data.uploader || 'Unknown',
+        title: data.title || "Unknown",
+        channel: data.channel || data.uploader || "Unknown",
         thumbnail,
         duration: data.duration || 0,
-      }
-    })
+      };
+    });
   } catch (error) {
-    console.error('[searchYoutube] Error:', error)
-    throw new Error(`Failed to search YouTube: ${error}`)
+    console.error("[searchYoutube] Error:", error);
+    throw new Error(`Failed to search YouTube: ${error}`);
   }
 }
 
-export async function getYoutubePlaylistMetadata(url: string): Promise<Array<{
-  id: string
-  title: string
-  channel: string
-  thumbnail: string
-  duration: number
-}>> {
+export async function getYoutubePlaylistMetadata(url: string): Promise<
+  Array<{
+    id: string;
+    title: string;
+    channel: string;
+    thumbnail: string;
+    duration: number;
+  }>
+> {
   try {
-    console.log('[getYoutubePlaylistMetadata] Fetching playlist metadata for URL:', url)
-    const stdout = await executeYtDlp([
-      '--dump-json',
-      '--no-warnings',
-      '--flat-playlist',  // Extract playlist info
-      url
-    ], 120000)  // 2 minute timeout for playlists
-    
+    console.log(
+      "[getYoutubePlaylistMetadata] Fetching playlist metadata for URL:",
+      url,
+    );
+    const stdout = await executeYtDlp(
+      [
+        ...getCommonArgs(),
+        "--dump-json",
+        "--no-warnings",
+        "--flat-playlist", // Extract playlist info
+        url,
+      ],
+      120000,
+    ); // 2 minute timeout for playlists
+
     // Split by newlines and parse each JSON object
-    const lines = stdout.trim().split('\n')
-    const videos = lines.map(line => JSON.parse(line)).filter((data: any) => data && data.id)
-    
-    console.log('[getYoutubePlaylistMetadata] Found', videos.length, 'videos in playlist')
-    
+    const lines = stdout.trim().split("\n");
+    const videos = lines
+      .map((line) => JSON.parse(line))
+      .filter((data: any) => data && data.id);
+
+    console.log(
+      "[getYoutubePlaylistMetadata] Found",
+      videos.length,
+      "videos in playlist",
+    );
+
     return videos.map((data: any) => {
-      console.log('[getYoutubePlaylistMetadata] Processing video:', data.title)
-      
+      console.log("[getYoutubePlaylistMetadata] Processing video:", data.title);
+
       // Get best thumbnail URL
-      let thumbnail = ''
-      if (data.thumbnails && Array.isArray(data.thumbnails) && data.thumbnails.length > 0) {
+      let thumbnail = "";
+      if (
+        data.thumbnails &&
+        Array.isArray(data.thumbnails) &&
+        data.thumbnails.length > 0
+      ) {
         const bestThumbnail = data.thumbnails
           .filter((t: any) => t.url)
           .sort((a: any, b: any) => {
-            const widthA = a.width || 0
-            const widthB = b.width || 0
-            return widthB - widthA
-          })[0]
-        thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || ''
+            const widthA = a.width || 0;
+            const widthB = b.width || 0;
+            return widthB - widthA;
+          })[0];
+        thumbnail = bestThumbnail?.url || data.thumbnails[0]?.url || "";
       }
-      
+
       // Fallback to standard YouTube thumbnail URLs
       if (!thumbnail && data.id) {
-        thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`
+        thumbnail = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`;
       }
-      
+
       return {
         id: data.id,
         title: data.title,
-        channel: data.channel || data.uploader || 'Unknown',
+        channel: data.channel || data.uploader || "Unknown",
         thumbnail,
         duration: data.duration || 0,
-      }
-    })
+      };
+    });
   } catch (error) {
-    console.error('[getYoutubePlaylistMetadata] Error:', error)
-    throw new Error(`Failed to get playlist metadata: ${error}`)
+    console.error("[getYoutubePlaylistMetadata] Error:", error);
+    throw new Error(`Failed to get playlist metadata: ${error}`);
   }
 }
 
+export async function downloadAudio(
+  youtubeId: string,
+  outputPath: string
+): Promise<void> {
+  try {
+    console.log("[downloadAudio] Downloading audio for:", youtubeId);
+    console.log("[downloadAudio] Output path:", outputPath);
+
+    await executeYtDlp(
+      [
+        ...getCommonArgs(),
+        "-f",
+        "bestaudio",
+        "-x", // Extract audio
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "0", // Best quality
+        "-o",
+        outputPath,
+        "--no-playlist",
+        `https://www.youtube.com/watch?v=${youtubeId}`,
+      ],
+      300000 // 5 minute timeout for download
+    );
+
+    console.log("[downloadAudio] Download complete:", outputPath);
+  } catch (error) {
+    console.error("[downloadAudio] Error:", error);
+    throw new Error(`Failed to download audio: ${error}`);
+  }
+}

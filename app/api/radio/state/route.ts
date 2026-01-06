@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
+// Track last cleanup time
+let lastCleanupTime = 0
+const CLEANUP_INTERVAL = 60 * 1000 // 1 minute
+
 function calculateCurrentPosition(state: {
   isPlaying: boolean
   currentPosition: number
@@ -15,6 +19,18 @@ function calculateCurrentPosition(state: {
 
 export async function GET(request: NextRequest) {
   try {
+    // Periodic maintenance (backup + cleanup)
+    const now = Date.now()
+    if (now - lastCleanupTime > CLEANUP_INTERVAL) {
+      lastCleanupTime = now
+      try {
+        db.createBackup()
+        db.cleanupStaleSessions()
+      } catch (error) {
+        console.error('[Radio State] Maintenance error:', error)
+      }
+    }
+
     const sessionId = request.headers.get('X-Session-ID')
 
     if (!sessionId) {
@@ -53,6 +69,54 @@ export async function GET(request: NextRequest) {
     let currentSong = null
     if (radioState.currentSongId) {
       currentSong = db.getSongById(radioState.currentSongId)
+    }
+
+    // AUTO-ADVANCE: Check if current song should have ended
+    if (radioState.isPlaying && radioState.startedAt && currentSong) {
+      const expectedEndTime = radioState.startedAt + (currentSong.duration * 1000)
+      const now = Date.now()
+
+      // Add 2-second buffer to account for timing variations
+      if (now > expectedEndTime + 2000) {
+        // Song should have ended - auto-advance to next
+        db.clearSkipVotesForSong(radioState.currentSongId!)
+
+        // Try queue first
+        const nextItem = db.getNextQueueItem()
+        if (nextItem?.song) {
+          db.markQueueItemPlayed(nextItem.id)
+          db.updateRadioState({
+            isPlaying: true,
+            currentSongId: nextItem.song.id,
+            currentPosition: 0,
+            startedAt: Date.now()
+          })
+          currentSong = nextItem.song
+        } else {
+          // Fall back to playlist
+          const playlistSong = db.getNextRadioPlaylistSong()
+          if (playlistSong?.song) {
+            db.updateRadioState({
+              isPlaying: true,
+              currentSongId: playlistSong.song.id,
+              currentPosition: 0,
+              startedAt: Date.now()
+            })
+            currentSong = playlistSong.song
+          } else {
+            // No more songs - stop playback
+            db.updateRadioState({
+              isPlaying: false,
+              currentSongId: null,
+              currentPosition: 0,
+              startedAt: null
+            })
+            currentSong = null
+          }
+        }
+        // Refresh radio state after update
+        radioState = db.getRadioState()!
+      }
     }
 
     // Get skip vote status

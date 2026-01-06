@@ -4,6 +4,7 @@
 .pnp.js
 /.claude/
 .claude
+*.db*
 
 # testing
 /coverage

@@ -15,7 +15,11 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json(playlistsWithSongs)
+    return NextResponse.json(playlistsWithSongs, {
+      headers: {
+        'Cache-Control': 'private, max-age=0, stale-while-revalidate=30',
+      },
+    })
   } catch (error) {
     console.error('[API] Error fetching playlists:', error)
     return NextResponse.json(

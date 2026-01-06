@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
+
+const SESSION_COOKIE = 'hibiki_session_id'
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,6 +18,15 @@ export async function POST(request: NextRequest) {
     const color = typeof colorIndex === 'number' ? colorIndex % 8 : 0
     const session = db.createSession(displayName.trim().slice(0, 20), color)
 
+    // Set session cookie for server actions
+    const cookieStore = await cookies()
+    cookieStore.set(SESSION_COOKIE, session.id, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7 // 1 week
+    })
+
     return NextResponse.json(session)
   } catch (error) {
     console.error('Error creating session:', error)
@@ -27,7 +39,13 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const sessionId = request.headers.get('X-Session-ID')
+    // Check header first, then fallback to cookie
+    let sessionId = request.headers.get('X-Session-ID')
+
+    if (!sessionId) {
+      const cookieStore = await cookies()
+      sessionId = cookieStore.get(SESSION_COOKIE)?.value || null
+    }
 
     if (!sessionId) {
       return NextResponse.json(
@@ -60,7 +78,13 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const sessionId = request.headers.get('X-Session-ID')
+    // Check header first, then fallback to cookie
+    let sessionId = request.headers.get('X-Session-ID')
+
+    if (!sessionId) {
+      const cookieStore = await cookies()
+      sessionId = cookieStore.get(SESSION_COOKIE)?.value || null
+    }
 
     if (!sessionId) {
       return NextResponse.json(
@@ -70,6 +94,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     db.deleteSession(sessionId)
+
+    // Clear session cookie
+    const cookieStore = await cookies()
+    cookieStore.delete(SESSION_COOKIE)
 
     return NextResponse.json({ success: true })
   } catch (error) {

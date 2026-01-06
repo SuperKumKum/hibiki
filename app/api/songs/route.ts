@@ -58,7 +58,11 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     const songs = db.getSongs()
-    return NextResponse.json(songs)
+    return NextResponse.json(songs, {
+      headers: {
+        'Cache-Control': 'private, max-age=0, stale-while-revalidate=30',
+      },
+    })
   } catch (error) {
     console.error('Error fetching songs:', error)
     return NextResponse.json(

@@ -8,6 +8,7 @@ interface PlaylistWithVotes {
   id: string
   name: string
   songCount?: number
+  localCount?: number
   votes: number
   hasVoted: boolean
 }
@@ -89,6 +90,11 @@ export default function RadioPlaylistManager() {
                 <p className="text-white text-sm font-medium truncate">{playlist.name}</p>
                 <p className="text-gray-500 text-xs">
                   {playlist.songCount || 0} songs
+                  {playlist.localCount !== undefined && playlist.localCount > 0 && (
+                    <span className="text-green-400 ml-2">
+                      ({playlist.localCount} local)
+                    </span>
+                  )}
                   {playlist.votes > 0 && !isActive && (
                     <span className="text-orange-400 ml-2">
                       {playlist.votes}/{votesRequired} votes

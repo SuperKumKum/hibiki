@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import Image from 'next/image'
-import { Play, Trash2, ListPlus, ArrowRight, CheckSquare } from 'lucide-react'
+import { Play, Trash2, ListPlus, ArrowRight, CheckSquare, HardDrive } from 'lucide-react'
 
 interface Song {
   id: string
@@ -12,6 +12,7 @@ interface Song {
   thumbnail: string
   duration: number
   playlists?: Playlist[]
+  isDownloaded?: boolean
 }
 
 interface Playlist {
@@ -38,7 +39,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-export default function SongCard({
+function SongCard({
   song,
   onPlay,
   onDelete,
@@ -222,10 +223,30 @@ export default function SongCard({
         <p className="text-tokyo-comment text-sm truncate flex-1" title={song.channelName}>
           {song.channelName}
         </p>
-        <span className="text-tokyo-fg-gutter text-xs ml-2">
-          {formatDuration(song.duration)}
-        </span>
+        <div className="flex items-center gap-2 ml-2">
+          {song.isDownloaded && (
+            <span title="Downloaded locally">
+              <HardDrive size={14} className="text-green-400" />
+            </span>
+          )}
+          <span className="text-tokyo-fg-gutter text-xs">
+            {formatDuration(song.duration)}
+          </span>
+        </div>
       </div>
     </div>
   )
 }
+
+// Memoize to prevent unnecessary re-renders in lists
+export default memo(SongCard, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if these props change
+  return (
+    prevProps.song.id === nextProps.song.id &&
+    prevProps.song.isDownloaded === nextProps.song.isDownloaded &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isSelectionMode === nextProps.isSelectionMode &&
+    prevProps.currentPlaylistId === nextProps.currentPlaylistId &&
+    prevProps.playlists?.length === nextProps.playlists?.length
+  )
+})

@@ -16,18 +16,17 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Build Next.js application with output tracing enabled
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
-
 # Production stage
 FROM node:20-alpine AS runner
 
-# Install Python, yt-dlp dependencies, and su-exec
-RUN apk add --no-cache python3 py3-pip ffmpeg su-exec
+# Install Python, yt-dlp dependencies, su-exec, and wget for healthcheck
+RUN apk add --no-cache python3 py3-pip ffmpeg su-exec wget
 
 # Install yt-dlp
 RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
+
+# Pre-download the EJS solver during build
+RUN yt-dlp --remote-components ejs:github --js-runtimes node --skip-download "https://www.youtube.com/watch?v=dQw4w9WgXcQ" || true
 
 WORKDIR /app
 
@@ -43,7 +42,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Create data directory for database
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app
+RUN mkdir -p /app/data && mkdir -p /app/data/audio && chown -R nextjs:nodejs /app
 
 # Switch to root to allow permission fixes on startup
 USER root
@@ -56,6 +55,7 @@ ENV HOSTNAME="0.0.0.0"
 # Create startup script that fixes permissions and starts the app
 RUN echo '#!/bin/sh' > /start.sh && \
     echo 'mkdir -p /app/data' >> /start.sh && \
+    echo 'mkdir -p /app/data/audio' >> /start.sh && \
     echo 'chown -R nextjs:nodejs /app/data' >> /start.sh && \
     echo 'su-exec nextjs node server.js' >> /start.sh && \
     chmod +x /start.sh

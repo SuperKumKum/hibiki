@@ -1,6 +1,23 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
+import { playNotificationSound } from '@/lib/notification'
+import {
+  createSession as createSessionAction,
+  endSession as endSessionAction,
+  authenticate as authenticateAction,
+  removeFromQueue as removeFromQueueAction,
+  voteSkip as voteSkipAction,
+  voteForPlaylist as voteForPlaylistAction,
+  play as playAction,
+  pause as pauseAction,
+  next as nextAction,
+  seek as seekAction,
+  toggleShuffle as toggleShuffleAction,
+  activatePlaylist as activatePlaylistAction,
+  clearQueue as clearQueueAction,
+  playFromQueue as playFromQueueAction
+} from '@/lib/actions/radio'
 
 interface Song {
   id: string
@@ -86,6 +103,8 @@ interface RadioContextType {
   toggleShuffle: () => Promise<void>
   fetchRadioPlaylists: () => Promise<void>
   activatePlaylist: (playlistId: string) => Promise<boolean>
+  clearQueue: () => Promise<boolean>
+  playFromQueue: (queueItemId: string) => Promise<boolean>
 }
 
 const RadioContext = createContext<RadioContextType | undefined>(undefined)
@@ -109,6 +128,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const [activePlaylist, setActivePlaylist] = useState<RadioPlaylist | null>(null)
   const [radioPlaylists, setRadioPlaylists] = useState<RadioPlaylist[]>([])
   const [playlistVotes, setPlaylistVotes] = useState<PlaylistVoteStatus>({})
+  const prevSkipVotesRef = useRef<number>(0)
+  const prevPlaylistVotesRef = useRef<{ [key: string]: number }>({})
 
   const getHeaders = useCallback((): Record<string, string> => {
     if (!session) return {}
@@ -256,19 +277,40 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval)
   }, [session, getHeaders])
 
+  // Play notification sound when votes increase (from other users)
+  useEffect(() => {
+    // Check for new skip votes
+    if (skipVotes.current > prevSkipVotesRef.current && prevSkipVotesRef.current > 0) {
+      playNotificationSound()
+    }
+    prevSkipVotesRef.current = skipVotes.current
+  }, [skipVotes.current])
+
+  // Play notification sound when playlist votes increase
+  useEffect(() => {
+    for (const [playlistId, vote] of Object.entries(playlistVotes)) {
+      const prevCount = prevPlaylistVotesRef.current[playlistId] || 0
+      if (vote.count > prevCount && prevCount > 0) {
+        playNotificationSound()
+        break // Only play once even if multiple votes came in
+      }
+    }
+    // Update ref with current counts
+    const newCounts: { [key: string]: number } = {}
+    for (const [playlistId, vote] of Object.entries(playlistVotes)) {
+      newCounts[playlistId] = vote.count
+    }
+    prevPlaylistVotesRef.current = newCounts
+  }, [playlistVotes])
+
   const createSession = async (displayName: string, colorIndex: number): Promise<boolean> => {
     try {
-      const res = await fetch('/api/radio/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName, colorIndex })
-      })
+      const result = await createSessionAction(displayName, colorIndex)
 
-      if (res.ok) {
-        const data = await res.json()
-        setSession(data)
+      if (result.success && result.data) {
+        setSession(result.data)
         setIsConnected(true)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data))
         return true
       }
       return false
@@ -281,10 +323,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const endSession = () => {
     if (session) {
-      fetch('/api/radio/session', {
-        method: 'DELETE',
-        headers: getHeaders()
-      }).catch(() => {})
+      endSessionAction().catch(() => {})
     }
     setSession(null)
     setIsConnected(false)
@@ -293,19 +332,11 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const authenticate = async (password: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/radio/admin/auth', {
-        method: 'POST',
-        headers: {
-          ...getHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ password })
-      })
+      const result = await authenticateAction(password)
 
-      if (res.ok) {
-        const data = await res.json()
-        setSession(data.session)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.session))
+      if (result.success && result.data) {
+        setSession(result.data)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data))
         return true
       }
       return false
@@ -340,11 +371,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const removeFromQueue = async (queueItemId: string): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/radio/queue/${queueItemId}`, {
-        method: 'DELETE',
-        headers: getHeaders()
-      })
-      return res.ok
+      const result = await removeFromQueueAction(queueItemId)
+      return result.success
     } catch (err) {
       console.error('Error removing from queue:', err)
       return false
@@ -353,16 +381,12 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const voteSkip = async (): Promise<boolean> => {
     try {
-      const res = await fetch('/api/radio/skip', {
-        method: 'POST',
-        headers: getHeaders()
-      })
+      const result = await voteSkipAction()
 
-      if (res.ok) {
-        const data = await res.json()
+      if (result.success && result.data) {
         setSkipVotes({
-          current: data.current,
-          required: data.required,
+          current: result.data.current,
+          required: result.data.required,
           hasVoted: true
         })
         return true
@@ -376,22 +400,14 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const voteForPlaylist = async (playlistId: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/radio/playlist-vote', {
-        method: 'POST',
-        headers: {
-          ...getHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ playlistId })
-      })
+      const result = await voteForPlaylistAction(playlistId)
 
-      if (res.ok) {
-        const data = await res.json()
+      if (result.success && result.data) {
         // Update local vote status
         setPlaylistVotes(prev => ({
           ...prev,
           [playlistId]: {
-            count: data.current,
+            count: result.data!.current,
             hasVoted: true
           }
         }))
@@ -406,10 +422,10 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const play = async () => {
     try {
-      await fetch('/api/radio/control/play', {
-        method: 'POST',
-        headers: getHeaders()
-      })
+      const result = await playAction()
+      if (!result.success) {
+        console.error('Error playing:', result.error)
+      }
     } catch (err) {
       console.error('Error playing:', err)
     }
@@ -417,10 +433,10 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const pause = async () => {
     try {
-      await fetch('/api/radio/control/pause', {
-        method: 'POST',
-        headers: getHeaders()
-      })
+      const result = await pauseAction()
+      if (!result.success) {
+        console.error('Error pausing:', result.error)
+      }
     } catch (err) {
       console.error('Error pausing:', err)
     }
@@ -428,10 +444,10 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const next = async () => {
     try {
-      await fetch('/api/radio/control/next', {
-        method: 'POST',
-        headers: getHeaders()
-      })
+      const result = await nextAction()
+      if (!result.success) {
+        console.error('Error skipping:', result.error)
+      }
     } catch (err) {
       console.error('Error skipping:', err)
     }
@@ -439,14 +455,10 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const seek = async (position: number) => {
     try {
-      await fetch('/api/radio/control/seek', {
-        method: 'POST',
-        headers: {
-          ...getHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ position })
-      })
+      const result = await seekAction(position)
+      if (!result.success) {
+        console.error('Error seeking:', result.error)
+      }
     } catch (err) {
       console.error('Error seeking:', err)
     }
@@ -454,10 +466,10 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const toggleShuffle = async () => {
     try {
-      await fetch('/api/radio/shuffle', {
-        method: 'POST',
-        headers: getHeaders()
-      })
+      const result = await toggleShuffleAction()
+      if (!result.success) {
+        console.error('Error toggling shuffle:', result.error)
+      }
     } catch (err) {
       console.error('Error toggling shuffle:', err)
     }
@@ -479,13 +491,30 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const activatePlaylist = async (playlistId: string): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/radio/playlists/${playlistId}/activate`, {
-        method: 'POST',
-        headers: getHeaders()
-      })
-      return res.ok
+      const result = await activatePlaylistAction(playlistId)
+      return result.success
     } catch (err) {
       console.error('Error activating playlist:', err)
+      return false
+    }
+  }
+
+  const clearQueue = async (): Promise<boolean> => {
+    try {
+      const result = await clearQueueAction()
+      return result.success
+    } catch (err) {
+      console.error('Error clearing queue:', err)
+      return false
+    }
+  }
+
+  const playFromQueue = async (queueItemId: string): Promise<boolean> => {
+    try {
+      const result = await playFromQueueAction(queueItemId)
+      return result.success
+    } catch (err) {
+      console.error('Error playing from queue:', err)
       return false
     }
   }
@@ -518,7 +547,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
         seek,
         toggleShuffle,
         fetchRadioPlaylists,
-        activatePlaylist
+        activatePlaylist,
+        clearQueue,
+        playFromQueue
       }}
     >
       {children}

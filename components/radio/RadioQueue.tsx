@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import { Plus, X, Music } from 'lucide-react'
+import { Plus, X, Music, Trash2, Play } from 'lucide-react'
 import { useRadio } from './RadioContext'
 import { AVATAR_COLORS } from './NamePickerModal'
 
@@ -85,8 +85,14 @@ function AddSongModal({ onClose, onAdd }: AddSongModalProps) {
 }
 
 export default function RadioQueue() {
-  const { queue, session, isAdmin, addToQueue, removeFromQueue } = useRadio()
+  const { queue, session, isAdmin, addToQueue, removeFromQueue, clearQueue, playFromQueue } = useRadio()
   const [showAddModal, setShowAddModal] = useState(false)
+
+  const handleClearQueue = async () => {
+    if (confirm('Are you sure you want to clear the entire queue?')) {
+      await clearQueue()
+    }
+  }
 
   const handleAdd = async (url: string) => {
     return await addToQueue(url, true)
@@ -96,6 +102,10 @@ export default function RadioQueue() {
     await removeFromQueue(queueItemId)
   }
 
+  const handlePlay = async (queueItemId: string) => {
+    await playFromQueue(queueItemId)
+  }
+
   return (
     <div className="bg-gray-800 rounded-xl p-4">
       <div className="flex items-center justify-between mb-4">
@@ -103,13 +113,24 @@ export default function RadioQueue() {
           <Music size={18} />
           Queue
         </h3>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors"
-        >
-          <Plus size={16} />
-          Add Song
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && queue.length > 0 && (
+            <button
+              onClick={handleClearQueue}
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors"
+            >
+              <Trash2 size={16} />
+              Clear
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1 transition-colors"
+          >
+            <Plus size={16} />
+            Add Song
+          </button>
+        </div>
       </div>
 
       {queue.length === 0 ? (
@@ -154,14 +175,26 @@ export default function RadioQueue() {
                 </div>
               </div>
 
-              {(isAdmin || item.addedBy === session?.id) && (
-                <button
-                  onClick={() => handleRemove(item.id)}
-                  className="text-gray-500 hover:text-red-500 p-1"
-                >
-                  <X size={16} />
-                </button>
-              )}
+              <div className="flex items-center gap-1">
+                {isAdmin && (
+                  <button
+                    onClick={() => handlePlay(item.id)}
+                    className="text-gray-500 hover:text-green-500 p-1"
+                    title="Play this song now"
+                  >
+                    <Play size={16} />
+                  </button>
+                )}
+                {(isAdmin || item.addedBy === session?.id) && (
+                  <button
+                    onClick={() => handleRemove(item.id)}
+                    className="text-gray-500 hover:text-red-500 p-1"
+                    title="Remove from queue"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

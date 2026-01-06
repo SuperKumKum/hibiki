@@ -20,11 +20,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get library playlists (from /playlists page)
-    const playlists = db.getPlaylists().map(p => ({
-      ...p,
-      songCount: db.getPlaylistSongs(p.id).length
-    }))
+    // Sync local audio files with database
+    db.syncLocalAudioFiles()
+
+    // Get library playlists (from /playlists page) with local counts
+    const playlists = db.getPlaylists().map(p => {
+      const localInfo = db.getPlaylistLocalCount(p.id)
+      return {
+        ...p,
+        songCount: localInfo.total,
+        localCount: localInfo.local
+      }
+    })
 
     return NextResponse.json(playlists)
   } catch (error) {

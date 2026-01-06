@@ -18,7 +18,12 @@ export async function GET(request: NextRequest) {
     const results = await searchYoutube(query, 10)
 
     console.log('[API] Found', results.length, 'results')
-    return NextResponse.json(results)
+    return NextResponse.json(results, {
+      headers: {
+        // Cache search results for 5 minutes
+        'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
+      },
+    })
   } catch (error) {
     console.error('[API] Error searching YouTube:', error)
     return NextResponse.json(

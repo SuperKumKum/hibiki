@@ -33,7 +33,7 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   } = useRadio()
 
   const audioRef = useRef<HTMLAudioElement>(null)
-  const [volume, setVolume] = useState(0.7)
+  const [volume, setVolume] = useState(0.25) // Start at 25% volume
   const [isMuted, setIsMuted] = useState(false)
   const [localTime, setLocalTime] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -42,7 +42,19 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   // Load audio when song changes
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !currentSong) return
+    if (!audio) return
+
+    // Clear audio source when no song is playing
+    if (!currentSong) {
+      if (audio.src) {
+        audio.pause()
+        audio.src = ''
+        audio.load()
+        lastSongIdRef.current = null
+        setLocalTime(0)
+      }
+      return
+    }
 
     if (lastSongIdRef.current !== currentSong.id) {
       lastSongIdRef.current = currentSong.id
@@ -92,11 +104,19 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     const handlePlaying = () => setIsBuffering(false)
     const handleCanPlay = () => setIsBuffering(false)
 
-    // Auto-advance to next song when current one ends
+    // When audio ends, pause it to prevent any glitches while waiting for server auto-advance
     const handleEnded = () => {
-      if (isAdmin) {
-        next()
+      audio.pause()
+      // Set local time to duration to show song completed
+      if (currentSong) {
+        setLocalTime(currentSong.duration)
       }
+    }
+
+    // Handle errors gracefully (e.g., network issues, format problems)
+    const handleError = () => {
+      console.error('Audio playback error')
+      setIsBuffering(false)
     }
 
     audio.addEventListener('timeupdate', handleTimeUpdate)
@@ -104,6 +124,7 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     audio.addEventListener('playing', handlePlaying)
     audio.addEventListener('canplay', handleCanPlay)
     audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('error', handleError)
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate)
@@ -111,8 +132,9 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
       audio.removeEventListener('playing', handlePlaying)
       audio.removeEventListener('canplay', handleCanPlay)
       audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
     }
-  }, [isAdmin, next])
+  }, [currentSong])
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isAdmin || !currentSong) return
@@ -129,16 +151,19 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     const canStart = queue.length > 0 || activePlaylist
     return (
       <div className="bg-tokyo-bg-hl rounded-xl p-6 text-center">
-        <div className="text-tokyo-comment mb-2">No song playing</div>
-        <p className="text-tokyo-fg-gutter text-sm mb-4">
+        <audio ref={audioRef} preload="none" />
+        <div className="text-tokyo-fg text-xl font-semibold mb-2">
+          {canStart ? 'Ready to play' : 'No music available'}
+        </div>
+        <p className="text-tokyo-comment text-sm mb-4">
           {queue.length > 0
-            ? `${queue.length} song${queue.length > 1 ? 's' : ''} in queue`
+            ? `${queue.length} song${queue.length > 1 ? 's' : ''} in queue - click to start`
             : activePlaylist
-              ? `Playing from: ${activePlaylist.name}`
-              : 'Add songs to the queue to start listening together'
+              ? `Playlist: ${activePlaylist.name}`
+              : 'Add songs to the queue or select a playlist to start'
           }
         </p>
-        {canStart && (
+        {canStart ? (
           <button
             onClick={play}
             className="bg-tokyo-blue hover:bg-tokyo-cyan text-tokyo-bg px-6 py-3 rounded-full transition-colors inline-flex items-center gap-2"
@@ -146,6 +171,10 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
             <Play size={24} className="ml-0.5" />
             Start Playing
           </button>
+        ) : (
+          <div className="text-tokyo-fg-gutter text-sm">
+            Waiting for songs...
+          </div>
         )}
       </div>
     )

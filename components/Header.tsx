@@ -13,7 +13,7 @@ interface SearchResult {
 }
 
 interface HeaderProps {
-  onAddSong: (url: string) => void
+  onAddSong: (url: string) => void | Promise<void>
   isLoading?: boolean
 }
 

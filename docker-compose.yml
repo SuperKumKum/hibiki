@@ -5,14 +5,31 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persist database
+      # Persist database and audio files
+      # Contains: db.json, db.json.backup.*, audio/*.mp3
       - ./data:/app/data
-      # Optional: persist yt-dlp cache
+      # Optional: persist yt-dlp cache for faster metadata fetching
       - yt-dlp-cache:/home/nextjs/.cache/yt-dlp
     environment:
       - NODE_ENV=production
-      - ADMIN_PASSWORD="HibikiWillRulesTheWorld"
+      # Admin password for:
+      # - Radio admin controls (play, pause, skip, shuffle, queue management)
+      # - Playlists page access (/playlists)
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
     restart: unless-stopped
+    # Health check to detect frozen/crashed app
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/radio/sessions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   yt-dlp-cache:

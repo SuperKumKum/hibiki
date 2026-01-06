@@ -5,7 +5,7 @@ interface CacheEntry {
 
 class StreamCache {
   private cache = new Map<string, CacheEntry>()
-  private cacheDuration = 3600000 // 1 hour in milliseconds
+  private cacheDuration = 18000000 // 5 hours in milliseconds (YouTube URLs expire after ~6h)
 
   set(youtubeId: string, url: string) {
     this.cache.set(youtubeId, {

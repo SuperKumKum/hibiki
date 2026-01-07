@@ -1,6 +1,6 @@
 ![Hibiki](hibiki_v2.svg)
 
-Self-hosted YouTube music streaming application built with Next.js 15.
+Self-hosted YouTube music streaming and collaborative radio application built with Next.js.
 
 ## Features
 
@@ -38,30 +38,61 @@ Self-hosted YouTube music streaming application built with Next.js 15.
 ## Prerequisites
 
 - Node.js 20+ (for local development)
+- Sqlite3 (for local development)
 - Docker & Docker Compose (for deployment)
 - Python 3 & yt-dlp (installed automatically in Docker)
 
+## Notes
+There are sometimes rate-limiting from Youtube with yt-dlp (even more if you're hosting on a static IP). 
+There is `yt-dlp` cache to prevent to requests Youtube, but when streaming it still send requests and it might not works on some songs. (Rick roll works fine) 
+To prevent this problem, there are 2 solutions: 
+- Download locally a playlist (Will take disk space on your system)
+- Add a `./data/cookies.txt` file to use active cookie from a Youtube session using your account.
+
+### Retrieve active cookie from Youtube session 
+- Get cookies.txt (for Chrome) https://chrome.google.com/webstore/detail/get-cookiestxt/bgaddhkoddajcdgocldbbfleckgcbcid/
+- Get cookies.txt (for Firefox ) https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/
+- Add it to `./data/cookies.txt`
+
+You can check if is working from NodeJS logs (using `docker logs -f hibiki`) 
+Here is a example output (without the file): 
+```
+[yt-dlp] Current working directory: /app
+[yt-dlp] Checking cookie paths: [ '/app/data/cookies.txt', '/app/cookies.txt', '/data/cookies.txt' ]
+[yt-dlp] Checking /app/data/cookies.txt: NOT FOUND
+[yt-dlp] Checking /app/cookies.txt: NOT FOUND
+[yt-dlp] Checking /data/cookies.txt: NOT FOUND
+[yt-dlp] No cookies file found, some videos may not work
+```
 ## Quick Start with Docker (Recommended)
 
-1. **Download the docker-compose.yml file:**
+The container will run with an unprevilegied user by default using UID and GID *1001* 
+
+0. **Add Unix system user**
+   ```bash
+   addgroup -g 1001 hibiki
+   adduser -u 1001 -g 1001 -s /usr/sbin/nologin
+   ```
+   
+2. **Download the docker-compose.yml file:**
    ```bash
    wget https://raw.githubusercontent.com/superkumkum/hibiki/main/docker-compose.yml
    ```
 
-2. **Configure environment (optional for Radio admin):**
+3. **Configure environment (optional for Radio admin):**
    ```bash
    echo "ADMIN_PASSWORD=your-secret-password" > .env
    ```
 
-3. **Start the application:**
+4. **Start the application:**
    ```bash
    docker-compose up -d
    ```
 
-4. **Access the application:**
+5. **Access the application:**
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-Your music library will be stored in `./data/db.json` and persists across container restarts.
+The SQLlite3 database will be created on first container launch. The file is stored under ./data/hibiki.db (for backup purpose).
 
 ## Local Development
 
@@ -70,35 +101,21 @@ Your music library will be stored in `./data/db.json` and persists across contai
    npm install
    ```
 
-2. **Create Python virtual environment:**
-   ```bash
-   python -m venv .venv
-   ```
 
-3. **Activate the virtual environment:**
-   - **Linux/macOS:**
-     ```bash
-     source .venv/bin/activate
-     ```
-   - **Windows:**
-     ```bash
-     .venv\Scripts\activate
-     ```
-
-4. **Install yt-dlp:**
+2. **Install yt-dlp:**
    ```bash
    pip install yt-dlp
    ```
 
-5. **Run the development server:**
+3. **Run the development server:**
    ```bash
    npm run dev
    ```
 
-6. **Open your browser:**
+4. **Open your browser:**
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-The database file (`data/db.json`) will be created automatically on first run.
+The database file (`data/hibiki.db`) will be created automatically on first run.
 
 ## Usage
 
@@ -140,14 +157,11 @@ docker-compose up -d
 
 ## Data Storage
 
-All data is stored in a simple JSON file at `data/db.json`. To backup your library, simply copy the `data/` folder.
+- The database SQLite3 is stored under `data/hibiki.db`
+- Locally audio files are stored under `data/audio` and must be mounted as a volume from docker
 
 ## Notes
 
-- Audio files are **never downloaded** to the server
+- Audio files are **never downloaded** to the server in default behavior, you will need to **manually download** songs / playlists from /playlists
 - Streaming URLs are dynamically generated using `yt-dlp`
 - The application requires `yt-dlp` to be installed (included in Docker)
-
-## License
-
-MIT

@@ -5,6 +5,9 @@ export const metadata: Metadata = {
   description: 'Collaborative radio - listen together in sync with friends',
 }
 
+// Force dynamic rendering to avoid SSR/prerender issues
+export const dynamic = 'force-dynamic'
+
 export default function RadioLayout({
   children,
 }: {

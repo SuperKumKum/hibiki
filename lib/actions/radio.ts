@@ -17,6 +17,7 @@ interface Session {
   lastSeenAt: number
   isActive: boolean
   countsForVotes: boolean
+  isMuted: boolean
 }
 
 interface SkipVoteStatus {

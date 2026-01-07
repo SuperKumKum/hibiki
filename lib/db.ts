@@ -41,6 +41,7 @@ interface Session {
   lastSeenAt: number
   isActive: boolean
   countsForVotes: boolean
+  isMuted: boolean
 }
 
 interface RadioState {
@@ -207,6 +208,7 @@ function initializeSchema() {
       is_admin INTEGER DEFAULT 0,
       is_active INTEGER DEFAULT 1,
       counts_for_votes INTEGER DEFAULT 1,
+      is_muted INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       last_seen_at INTEGER NOT NULL
     );
@@ -288,6 +290,13 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add is_muted column if it doesn't exist
+try {
+  sqlite.exec(`ALTER TABLE sessions ADD COLUMN is_muted INTEGER DEFAULT 0`)
+} catch {
+  // Column already exists, ignore
+}
+
 // Helper to convert SQLite row to Song
 function rowToSong(row: Record<string, unknown>): Song {
   return {
@@ -335,7 +344,8 @@ function rowToSession(row: Record<string, unknown>): Session {
     createdAt: row.created_at as number,
     lastSeenAt: row.last_seen_at as number,
     isActive: Boolean(row.is_active),
-    countsForVotes: row.counts_for_votes !== 0 && row.counts_for_votes !== null
+    countsForVotes: row.counts_for_votes !== 0 && row.counts_for_votes !== null,
+    isMuted: Boolean(row.is_muted)
   }
 }
 
@@ -484,7 +494,8 @@ const statements = {
       is_admin = COALESCE(?, is_admin),
       is_active = COALESCE(?, is_active),
       last_seen_at = COALESCE(?, last_seen_at),
-      counts_for_votes = COALESCE(?, counts_for_votes)
+      counts_for_votes = COALESCE(?, counts_for_votes),
+      is_muted = COALESCE(?, is_muted)
     WHERE id = ?
   `),
   // Lightweight heartbeat - only updates lastSeenAt for better performance
@@ -759,7 +770,8 @@ export const db = {
       createdAt: now,
       lastSeenAt: now,
       isActive: true,
-      countsForVotes: true
+      countsForVotes: true,
+      isMuted: false
     }
   },
 
@@ -774,6 +786,7 @@ export const db = {
       updates.isActive !== undefined ? (updates.isActive ? 1 : 0) : null,
       updates.lastSeenAt ?? null,
       updates.countsForVotes !== undefined ? (updates.countsForVotes ? 1 : 0) : null,
+      updates.isMuted !== undefined ? (updates.isMuted ? 1 : 0) : null,
       id
     )
 

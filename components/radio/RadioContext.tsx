@@ -34,6 +34,8 @@ interface Session {
   displayName: string
   colorIndex: number
   isAdmin: boolean
+  countsForVotes: boolean
+  isMuted: boolean
 }
 
 interface RadioState {
@@ -105,6 +107,10 @@ interface RadioContextType {
   activatePlaylist: (playlistId: string) => Promise<boolean>
   clearQueue: () => Promise<boolean>
   playFromQueue: (queueItemId: string) => Promise<boolean>
+  // Optimistic update for listener properties (used by admin controls)
+  updateListener: (listenerId: string, updates: Partial<Session>) => void
+  // Clear pending update after API call completes
+  clearPendingListenerUpdate: (listenerId: string) => void
 }
 
 const RadioContext = createContext<RadioContextType | undefined>(undefined)
@@ -127,6 +133,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   const [playlistVotes, setPlaylistVotes] = useState<PlaylistVoteStatus>({})
   const prevSkipVotesRef = useRef<number>(-1)
   const prevPlaylistVotesRef = useRef<{ [key: string]: number }>({})
+  // Track pending optimistic updates for listeners (to preserve during SSE updates)
+  const pendingListenerUpdatesRef = useRef<Map<string, Partial<Session>>>(new Map())
 
   const getHeaders = useCallback((): Record<string, string> => {
     if (!session) return {}
@@ -194,7 +202,16 @@ export function RadioProvider({ children }: { children: ReactNode }) {
           setSkipVotes(data.skipVotes)
           setQueue(data.queue || [])
           setActivePlaylist(data.activePlaylist || null)
-          setListeners(data.listeners || [])
+          // Merge server listeners with pending optimistic updates
+          const serverListeners = data.listeners || []
+          const mergedListeners = serverListeners.map((listener: Session) => {
+            const pendingUpdate = pendingListenerUpdatesRef.current.get(listener.id)
+            if (pendingUpdate) {
+              return { ...listener, ...pendingUpdate }
+            }
+            return listener
+          })
+          setListeners(mergedListeners)
           setPlaylistVotes(data.playlistVotes || {})
           setError(null)
         } catch (err) {
@@ -364,23 +381,34 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   }
 
   const play = async () => {
+    // Optimistic update
+    setRadioState(prev => prev ? { ...prev, isPlaying: true, startedAt: Date.now() } : prev)
     try {
       const result = await playAction()
       if (!result.success) {
+        // Revert on error
+        setRadioState(prev => prev ? { ...prev, isPlaying: false, startedAt: null } : prev)
         console.error('Error playing:', result.error)
       }
     } catch (err) {
+      setRadioState(prev => prev ? { ...prev, isPlaying: false, startedAt: null } : prev)
       console.error('Error playing:', err)
     }
   }
 
   const pause = async () => {
+    // Optimistic update
+    const previousState = radioState
+    setRadioState(prev => prev ? { ...prev, isPlaying: false, startedAt: null } : prev)
     try {
       const result = await pauseAction()
       if (!result.success) {
+        // Revert on error
+        setRadioState(previousState)
         console.error('Error pausing:', result.error)
       }
     } catch (err) {
+      setRadioState(previousState)
       console.error('Error pausing:', err)
     }
   }
@@ -397,6 +425,8 @@ export function RadioProvider({ children }: { children: ReactNode }) {
   }
 
   const seek = async (position: number) => {
+    // Optimistic update
+    setRadioState(prev => prev ? { ...prev, currentPosition: position, startedAt: prev.isPlaying ? Date.now() : null } : prev)
     try {
       const result = await seekAction(position)
       if (!result.success) {
@@ -462,6 +492,25 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Optimistic update for listener properties (mute, vote status, etc.)
+  // Also tracks the update so SSE won't overwrite it until cleared
+  const updateListener = (listenerId: string, updates: Partial<Session>) => {
+    // Track pending update to preserve during SSE updates
+    const existing = pendingListenerUpdatesRef.current.get(listenerId) || {}
+    pendingListenerUpdatesRef.current.set(listenerId, { ...existing, ...updates })
+
+    setListeners(prev => prev.map(listener =>
+      listener.id === listenerId
+        ? { ...listener, ...updates }
+        : listener
+    ))
+  }
+
+  // Clear pending update after API call completes (success or failure)
+  const clearPendingListenerUpdate = (listenerId: string) => {
+    pendingListenerUpdatesRef.current.delete(listenerId)
+  }
+
   return (
     <RadioContext.Provider
       value={{
@@ -491,7 +540,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
         fetchRadioPlaylists,
         activatePlaylist,
         clearQueue,
-        playFromQueue
+        playFromQueue,
+        updateListener,
+        clearPendingListenerUpdate
       }}
     >
       {children}

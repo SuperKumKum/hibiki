@@ -25,6 +25,7 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     isAdmin,
     queue,
     activePlaylist,
+    session,
     play,
     pause,
     next,
@@ -35,6 +36,10 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [volume, setVolume] = useState(0.25) // Start at 25% volume
   const [isMuted, setIsMuted] = useState(false)
+
+  // Check if current session is remotely muted by admin
+  const currentListener = listeners.find(l => l.id === session?.id)
+  const isRemotelyMuted = currentListener?.isMuted ?? false
   const [localTime, setLocalTime] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
   const lastSongIdRef = useRef<string | null>(null)
@@ -84,12 +89,12 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     }
   }, [radioState, isBuffering])
 
-  // Volume control
+  // Volume control (respects both local mute and remote mute from admin)
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume
+      audioRef.current.volume = (isMuted || isRemotelyMuted) ? 0 : volume
     }
-  }, [volume, isMuted])
+  }, [volume, isMuted, isRemotelyMuted])
 
   // Track local time for display and handle song end
   useEffect(() => {
@@ -316,31 +321,41 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
 
         {/* Volume */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className="text-tokyo-comment hover:text-tokyo-fg"
-          >
-            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-          </button>
-          <div className="w-20 sm:w-24 relative h-5 flex items-center group">
-            <div className="absolute w-full h-1 bg-tokyo-fg-gutter rounded-full" />
-            <div
-              className="absolute h-1 bg-tokyo-fg rounded-full pointer-events-none"
-              style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
-            />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={isMuted ? 0 : volume}
-              onChange={(e) => {
-                setVolume(parseFloat(e.target.value))
-                setIsMuted(false)
-              }}
-              className="absolute w-full h-5 appearance-none bg-transparent cursor-pointer z-10"
-            />
-          </div>
+          {isRemotelyMuted ? (
+            // Show indicator when admin has muted this session
+            <div className="flex items-center gap-2 text-red-400" title="Muted by admin">
+              <VolumeX size={20} />
+              <span className="text-xs hidden sm:inline">Muted by admin</span>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => setIsMuted(!isMuted)}
+                className="text-tokyo-comment hover:text-tokyo-fg"
+              >
+                {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              </button>
+              <div className="w-20 sm:w-24 relative h-5 flex items-center group">
+                <div className="absolute w-full h-1 bg-tokyo-fg-gutter rounded-full" />
+                <div
+                  className="absolute h-1 bg-tokyo-fg rounded-full pointer-events-none"
+                  style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
+                />
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={isMuted ? 0 : volume}
+                  onChange={(e) => {
+                    setVolume(parseFloat(e.target.value))
+                    setIsMuted(false)
+                  }}
+                  className="absolute w-full h-5 appearance-none bg-transparent cursor-pointer z-10"
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,11 +1,65 @@
 'use client'
 
-import { Users, Crown } from 'lucide-react'
+import { useState } from 'react'
+import { Users, Crown, VolumeX, UserCheck, Volume2 } from 'lucide-react'
 import { useRadio } from './RadioContext'
 import { AVATAR_COLORS } from './NamePickerModal'
 
 export default function ListenersList() {
-  const { listeners, session } = useRadio()
+  const { listeners, session, isAdmin, updateListener, clearPendingListenerUpdate } = useRadio()
+  const [updating, setUpdating] = useState<string | null>(null)
+
+  const toggleVoteStatus = async (listenerId: string, currentStatus: boolean) => {
+    // Optimistic update - instant UI feedback
+    updateListener(listenerId, { countsForVotes: !currentStatus })
+    setUpdating(listenerId)
+    try {
+      const res = await fetch(`/api/radio/sessions/${listenerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ countsForVotes: !currentStatus })
+      })
+      if (!res.ok) {
+        // Revert on error
+        updateListener(listenerId, { countsForVotes: currentStatus })
+        const data = await res.json()
+        console.error('Failed to toggle vote status:', data.error)
+      }
+    } catch (err) {
+      // Revert on error
+      updateListener(listenerId, { countsForVotes: currentStatus })
+      console.error('Error toggling vote status:', err)
+    } finally {
+      setUpdating(null)
+      clearPendingListenerUpdate(listenerId)
+    }
+  }
+
+  const toggleMuteStatus = async (listenerId: string, currentStatus: boolean) => {
+    // Optimistic update - instant UI feedback
+    updateListener(listenerId, { isMuted: !currentStatus })
+    setUpdating(`mute-${listenerId}`)
+    try {
+      const res = await fetch(`/api/radio/sessions/${listenerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isMuted: !currentStatus })
+      })
+      if (!res.ok) {
+        // Revert on error
+        updateListener(listenerId, { isMuted: currentStatus })
+        const data = await res.json()
+        console.error('Failed to toggle mute status:', data.error)
+      }
+    } catch (err) {
+      // Revert on error
+      updateListener(listenerId, { isMuted: currentStatus })
+      console.error('Error toggling mute status:', err)
+    } finally {
+      setUpdating(null)
+      clearPendingListenerUpdate(listenerId)
+    }
+  }
 
   return (
     <div className="bg-gray-800 rounded-xl p-4">
@@ -45,8 +99,45 @@ export default function ListenersList() {
                   {listener.isAdmin && (
                     <Crown size={14} className="text-yellow-500" />
                   )}
+                  {!listener.countsForVotes && (
+                    <span title="Cannot vote">
+                      <VolumeX size={14} className="text-gray-500" />
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* Admin controls */}
+              {isAdmin && listener.id !== session?.id && (
+                <div className="flex items-center gap-1">
+                  {/* Toggle vote status */}
+                  <button
+                    onClick={() => toggleVoteStatus(listener.id, listener.countsForVotes)}
+                    disabled={updating === listener.id}
+                    className={`p-1.5 rounded transition-colors ${
+                      listener.countsForVotes
+                        ? 'bg-green-600/20 text-green-400 hover:bg-green-600/30'
+                        : 'bg-gray-600/20 text-gray-500 hover:bg-gray-600/30'
+                    } ${updating === listener.id ? 'opacity-50' : ''}`}
+                    title={listener.countsForVotes ? 'Can vote - click to disable' : 'Cannot vote - click to enable'}
+                  >
+                    <UserCheck size={14} />
+                  </button>
+                  {/* Toggle mute status */}
+                  <button
+                    onClick={() => toggleMuteStatus(listener.id, listener.isMuted)}
+                    disabled={updating === `mute-${listener.id}`}
+                    className={`p-1.5 rounded transition-colors ${
+                      listener.isMuted
+                        ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30'
+                        : 'bg-gray-600/20 text-gray-500 hover:bg-gray-600/30'
+                    } ${updating === `mute-${listener.id}` ? 'opacity-50' : ''}`}
+                    title={listener.isMuted ? 'Muted - click to unmute' : 'Not muted - click to mute'}
+                  >
+                    {listener.isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                  </button>
+                </div>
+              )}
 
               <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
             </div>

@@ -16,6 +16,7 @@ interface Session {
   createdAt: number
   lastSeenAt: number
   isActive: boolean
+  countsForVotes: boolean
 }
 
 interface SkipVoteStatus {
@@ -164,9 +165,9 @@ export async function voteSkip(): Promise<ActionResult<SkipVoteStatus>> {
     // Create vote
     db.createSkipVote(session.id, radioState.currentSongId)
 
-    // Check if threshold met
-    const activeListeners = db.getActiveSessions().length
-    const votesNeeded = Math.max(1, Math.floor(activeListeners / 2) + 1)
+    // Check if threshold met (only count users who can vote)
+    const activeVoters = db.getActiveVoters().length
+    const votesNeeded = Math.max(1, Math.floor(activeVoters / 2) + 1)
     const currentVotes = db.getSkipVotesForSong(radioState.currentSongId).length
 
     let skipped = false
@@ -236,14 +237,14 @@ export async function voteForPlaylist(playlistId: string): Promise<ActionResult<
     // Create vote (removes any previous vote from this session)
     db.createPlaylistVote(session.id, playlistId)
 
-    // Check if majority reached
-    const activeSessions = db.getActiveSessions()
+    // Check if majority reached (only count users who can vote)
+    const activeVoters = db.getActiveVoters()
     const votes = db.getPlaylistVotes(playlistId)
     const activeVotes = votes.filter(v =>
-      activeSessions.some(s => s.id === v.sessionId)
+      activeVoters.some(s => s.id === v.sessionId)
     )
 
-    const required = Math.floor(activeSessions.length / 2) + 1
+    const required = Math.floor(activeVoters.length / 2) + 1
     const current = activeVotes.length
 
     // If majority reached, activate the playlist

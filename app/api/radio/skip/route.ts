@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const activeListeners = db.getActiveSessions().length
-    const votesNeeded = Math.max(1, Math.floor(activeListeners / 2) + 1)
+    const activeVoters = db.getActiveVoters().length
+    const votesNeeded = Math.max(1, Math.floor(activeVoters / 2) + 1)
     const votes = db.getSkipVotesForSong(radioState.currentSongId)
     const hasVoted = votes.some(v => v.sessionId === sessionId)
 
@@ -93,9 +93,9 @@ export async function POST(request: NextRequest) {
     // Create vote
     db.createSkipVote(sessionId, radioState.currentSongId)
 
-    // Check if threshold met
-    const activeListeners = db.getActiveSessions().length
-    const votesNeeded = Math.max(1, Math.floor(activeListeners / 2) + 1)
+    // Check if threshold met (only count users who can vote)
+    const activeVoters = db.getActiveVoters().length
+    const votesNeeded = Math.max(1, Math.floor(activeVoters / 2) + 1)
     const currentVotes = db.getSkipVotesForSong(radioState.currentSongId).length
 
     let skipped = false

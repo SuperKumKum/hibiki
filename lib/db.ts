@@ -40,6 +40,7 @@ interface Session {
   createdAt: number
   lastSeenAt: number
   isActive: boolean
+  countsForVotes: boolean
 }
 
 interface RadioState {
@@ -205,6 +206,7 @@ function initializeSchema() {
       color_index INTEGER NOT NULL,
       is_admin INTEGER DEFAULT 0,
       is_active INTEGER DEFAULT 1,
+      counts_for_votes INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL,
       last_seen_at INTEGER NOT NULL
     );
@@ -279,6 +281,13 @@ function initializeSchema() {
 
 initializeSchema()
 
+// Migration: Add counts_for_votes column if it doesn't exist
+try {
+  sqlite.exec(`ALTER TABLE sessions ADD COLUMN counts_for_votes INTEGER DEFAULT 1`)
+} catch {
+  // Column already exists, ignore
+}
+
 // Helper to convert SQLite row to Song
 function rowToSong(row: Record<string, unknown>): Song {
   return {
@@ -325,7 +334,8 @@ function rowToSession(row: Record<string, unknown>): Session {
     isAdmin: Boolean(row.is_admin),
     createdAt: row.created_at as number,
     lastSeenAt: row.last_seen_at as number,
-    isActive: Boolean(row.is_active)
+    isActive: Boolean(row.is_active),
+    countsForVotes: row.counts_for_votes !== 0 && row.counts_for_votes !== null
   }
 }
 
@@ -473,7 +483,8 @@ const statements = {
       color_index = COALESCE(?, color_index),
       is_admin = COALESCE(?, is_admin),
       is_active = COALESCE(?, is_active),
-      last_seen_at = COALESCE(?, last_seen_at)
+      last_seen_at = COALESCE(?, last_seen_at),
+      counts_for_votes = COALESCE(?, counts_for_votes)
     WHERE id = ?
   `),
   // Lightweight heartbeat - only updates lastSeenAt for better performance
@@ -726,6 +737,11 @@ export const db = {
     return rows.map(rowToSession)
   },
 
+  // Get active sessions that count for voting (excludes system users/AFK users)
+  getActiveVoters: (): Session[] => {
+    return db.getActiveSessions().filter(s => s.countsForVotes)
+  },
+
   getSessionById: (id: string): Session | undefined => {
     const row = statements.getSessionById.get(id) as Record<string, unknown> | undefined
     return row ? rowToSession(row) : undefined
@@ -742,7 +758,8 @@ export const db = {
       isAdmin: false,
       createdAt: now,
       lastSeenAt: now,
-      isActive: true
+      isActive: true,
+      countsForVotes: true
     }
   },
 
@@ -756,6 +773,7 @@ export const db = {
       updates.isAdmin !== undefined ? (updates.isAdmin ? 1 : 0) : null,
       updates.isActive !== undefined ? (updates.isActive ? 1 : 0) : null,
       updates.lastSeenAt ?? null,
+      updates.countsForVotes !== undefined ? (updates.countsForVotes ? 1 : 0) : null,
       id
     )
 

@@ -68,9 +68,12 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          // Get skip votes
+          // Get all active listeners (for display) and voters (for threshold calculation)
           const activeListeners = db.getActiveSessions()
-          const votesNeeded = Math.max(1, Math.floor(activeListeners.length / 2) + 1)
+          const activeVoters = db.getActiveVoters()
+
+          // Get skip votes (threshold based on voters only)
+          const votesNeeded = Math.max(1, Math.floor(activeVoters.length / 2) + 1)
           let currentVotes = 0
           let hasVotedSkip = false
           if (radioState.currentSongId) {
@@ -88,14 +91,14 @@ export async function GET(request: NextRequest) {
             activePlaylist = db.getPlaylistById(radioState.activeRadioPlaylistId)
           }
 
-          // Get playlist votes
+          // Get playlist votes (threshold based on voters only)
           const allPlaylistVotes = db.getAllPlaylistVotes()
           const playlistVotes: { [key: string]: { count: number; hasVoted: boolean } } = {}
           const playlists = db.getPlaylists()
           for (const playlist of playlists) {
             const votes = allPlaylistVotes.filter(v => v.playlistId === playlist.id)
             const activeVotes = votes.filter(v =>
-              activeListeners.some(s => s.id === v.sessionId)
+              activeVoters.some(s => s.id === v.sessionId)
             )
             playlistVotes[playlist.id] = {
               count: activeVotes.length,

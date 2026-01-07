@@ -262,6 +262,19 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
               >
                 <Shuffle size={20} />
               </button>
+              {/* Admin can also vote to skip */}
+              <button
+                onClick={onVoteSkip}
+                disabled={skipVotes.hasVoted}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  skipVotes.hasVoted
+                    ? 'bg-tokyo-bg-menu text-tokyo-comment cursor-not-allowed'
+                    : 'bg-tokyo-orange hover:bg-tokyo-yellow text-tokyo-bg'
+                }`}
+                title="Vote to skip (in addition to manual skip)"
+              >
+                {skipVotes.hasVoted ? 'Voted' : 'Vote'} ({skipVotes.current}/{skipVotes.required})
+              </button>
             </>
           ) : (
             <button

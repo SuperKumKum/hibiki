@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
       // Send initial data immediately
       const sendUpdate = () => {
         try {
-          // Update heartbeat
-          db.updateSession(sessionId, { lastSeenAt: Date.now(), isActive: true })
+          // Update heartbeat (using lightweight method to reduce DB lock time)
+          db.heartbeatSession(sessionId)
 
           // Get radio state
           let radioState = db.getRadioState()
@@ -58,42 +58,13 @@ export async function GET(request: NextRequest) {
             currentSong = db.getSongById(radioState.currentSongId)
           }
 
-          // Auto-advance check
+          // Auto-advance check - uses atomic transaction to prevent lock contention
           if (radioState.isPlaying && radioState.startedAt && currentSong) {
             const expectedEndTime = radioState.startedAt + (currentSong.duration * 1000)
             if (Date.now() > expectedEndTime + 2000) {
-              db.clearSkipVotesForSong(radioState.currentSongId!)
-              const nextItem = db.getNextQueueItem()
-              if (nextItem?.song) {
-                db.markQueueItemPlayed(nextItem.id)
-                db.updateRadioState({
-                  isPlaying: true,
-                  currentSongId: nextItem.song.id,
-                  currentPosition: 0,
-                  startedAt: Date.now()
-                })
-                currentSong = nextItem.song
-              } else {
-                const playlistSong = db.getNextRadioPlaylistSong()
-                if (playlistSong?.song) {
-                  db.updateRadioState({
-                    isPlaying: true,
-                    currentSongId: playlistSong.song.id,
-                    currentPosition: 0,
-                    startedAt: Date.now()
-                  })
-                  currentSong = playlistSong.song
-                } else {
-                  db.updateRadioState({
-                    isPlaying: false,
-                    currentSongId: null,
-                    currentPosition: 0,
-                    startedAt: null
-                  })
-                  currentSong = null
-                }
-              }
-              radioState = db.getRadioState()!
+              const result = db.advanceToNextSong()
+              radioState = result.radioState
+              currentSong = result.currentSong
             }
           }
 
@@ -161,8 +132,8 @@ export async function GET(request: NextRequest) {
       // Send initial update
       sendUpdate()
 
-      // Send updates every 2 seconds
-      const interval = setInterval(sendUpdate, 2000)
+      // Send updates every 5 seconds (reduced from 2s to prevent database lock contention)
+      const interval = setInterval(sendUpdate, 5000)
 
       // Cleanup on close
       request.signal.addEventListener('abort', () => {

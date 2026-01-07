@@ -1,35 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-async function skipToNextSong() {
-  const nextItem = db.getNextQueueItem()
-
-  // Clear votes for current song
-  const radioState = db.getRadioState()
-  if (radioState?.currentSongId) {
-    db.clearSkipVotesForSong(radioState.currentSongId)
-  }
-
-  if (!nextItem || !nextItem.song) {
-    // No more songs
-    db.updateRadioState({
-      isPlaying: false,
-      currentSongId: null,
-      currentPosition: 0,
-      startedAt: null
-    })
-    return null
-  }
-
-  db.markQueueItemPlayed(nextItem.id)
-  db.updateRadioState({
-    isPlaying: true,
-    currentSongId: nextItem.song.id,
-    currentPosition: 0,
-    startedAt: Date.now()
-  })
-
-  return nextItem.song
+// Use atomic transaction from db module
+function skipToNextSong() {
+  const result = db.advanceToNextSong()
+  return result.currentSong
 }
 
 export async function GET(request: NextRequest) {
@@ -127,7 +102,7 @@ export async function POST(request: NextRequest) {
     let nextSong = null
 
     if (currentVotes >= votesNeeded) {
-      nextSong = await skipToNextSong()
+      nextSong = skipToNextSong()
       skipped = true
     }
 

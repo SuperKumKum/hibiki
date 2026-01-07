@@ -28,57 +28,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Clear votes for current song
-    const radioState = db.getRadioState()
-    if (radioState?.currentSongId) {
-      db.clearSkipVotesForSong(radioState.currentSongId)
-    }
+    // Use atomic transaction to advance to next song
+    const result = db.advanceToNextSong()
 
-    // Try to get next song from queue first
-    const nextItem = db.getNextQueueItem()
-
-    if (nextItem && nextItem.song) {
-      // Play from queue
-      db.markQueueItemPlayed(nextItem.id)
-      db.updateRadioState({
-        isPlaying: true,
-        currentSongId: nextItem.song.id,
-        currentPosition: 0,
-        startedAt: Date.now()
-      })
-
+    if (result.currentSong) {
       return NextResponse.json({
         success: true,
-        song: nextItem.song,
-        source: 'queue'
+        song: result.currentSong
       })
     }
-
-    // Queue is empty, try radio playlist
-    const playlistSong = db.getNextRadioPlaylistSong()
-
-    if (playlistSong && playlistSong.song) {
-      db.updateRadioState({
-        isPlaying: true,
-        currentSongId: playlistSong.song.id,
-        currentPosition: 0,
-        startedAt: Date.now()
-      })
-
-      return NextResponse.json({
-        success: true,
-        song: playlistSong.song,
-        source: 'playlist'
-      })
-    }
-
-    // No songs available, stop playing
-    db.updateRadioState({
-      isPlaying: false,
-      currentSongId: null,
-      currentPosition: 0,
-      startedAt: null
-    })
 
     return NextResponse.json({ success: true, ended: true })
   } catch (error) {

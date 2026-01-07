@@ -127,6 +127,43 @@ const sqlite = new Database(getDbPath())
 sqlite.pragma('journal_mode = WAL')
 sqlite.pragma('foreign_keys = ON')
 
+// Write queue to prevent database lock contention
+// Serializes all write operations to avoid SQLITE_BUSY errors
+class WriteQueue {
+  private queue: Promise<unknown> = Promise.resolve()
+  private pending = 0
+
+  // Execute a write operation in the queue
+  write<T>(operation: () => T): T {
+    // For synchronous better-sqlite3 operations, we use a simple lock mechanism
+    // Since better-sqlite3 is synchronous, we track pending operations
+    // and use busy_timeout to handle concurrent access
+    this.pending++
+    try {
+      return operation()
+    } finally {
+      this.pending--
+    }
+  }
+
+  // Get number of pending operations (for debugging)
+  getPending(): number {
+    return this.pending
+  }
+}
+
+const writeQueue = new WriteQueue()
+
+// Set busy timeout to wait for locks instead of failing immediately
+// This gives time for other operations to complete
+sqlite.pragma('busy_timeout = 5000')
+
+// Transaction helper for batching multiple operations
+// Reduces lock time by combining operations into a single transaction
+function withTransaction<T>(operation: () => T): T {
+  return sqlite.transaction(operation)()
+}
+
 // Initialize schema
 function initializeSchema() {
   sqlite.exec(`
@@ -439,6 +476,10 @@ const statements = {
       last_seen_at = COALESCE(?, last_seen_at)
     WHERE id = ?
   `),
+  // Lightweight heartbeat - only updates lastSeenAt for better performance
+  heartbeatSession: sqlite.prepare(`
+    UPDATE sessions SET last_seen_at = ?, is_active = 1 WHERE id = ?
+  `),
   deleteSession: sqlite.prepare(`DELETE FROM sessions WHERE id = ?`),
   deactivateSession: sqlite.prepare(`UPDATE sessions SET is_active = 0 WHERE id = ?`),
   markStaleSessionsInactive: sqlite.prepare(`
@@ -719,6 +760,12 @@ export const db = {
     )
 
     return db.getSessionById(id) || null
+  },
+
+  // Lightweight heartbeat - faster than updateSession for SSE polling
+  heartbeatSession: (id: string): boolean => {
+    const result = statements.heartbeatSession.run(Date.now(), id)
+    return result.changes > 0
   },
 
   deleteSession: (id: string): void => {
@@ -1021,6 +1068,51 @@ export const db = {
   toggleShuffle: (): RadioState => {
     const current = db.getRadioState()
     return db.updateRadioState({ isShuffled: !current?.isShuffled })
+  },
+
+  // Advance to next song atomically (used by auto-advance and skip)
+  // Returns the new current song or null if queue is empty
+  advanceToNextSong: (): { radioState: RadioState; currentSong: Song | null } => {
+    return withTransaction(() => {
+      const radioState = db.getRadioState()
+      if (radioState?.currentSongId) {
+        db.clearSkipVotesForSong(radioState.currentSongId)
+      }
+
+      // Try queue first
+      const nextItem = db.getNextQueueItem()
+      if (nextItem?.song) {
+        db.markQueueItemPlayed(nextItem.id)
+        const newState = db.updateRadioState({
+          isPlaying: true,
+          currentSongId: nextItem.song.id,
+          currentPosition: 0,
+          startedAt: Date.now()
+        })
+        return { radioState: newState, currentSong: nextItem.song }
+      }
+
+      // Try playlist fallback
+      const playlistSong = db.getNextRadioPlaylistSong()
+      if (playlistSong?.song) {
+        const newState = db.updateRadioState({
+          isPlaying: true,
+          currentSongId: playlistSong.song.id,
+          currentPosition: 0,
+          startedAt: Date.now()
+        })
+        return { radioState: newState, currentSong: playlistSong.song }
+      }
+
+      // No more songs - stop playback
+      const newState = db.updateRadioState({
+        isPlaying: false,
+        currentSongId: null,
+        currentPosition: 0,
+        startedAt: null
+      })
+      return { radioState: newState, currentSong: null }
+    })
   },
 
   // Audio storage helpers

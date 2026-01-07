@@ -283,11 +283,11 @@ export async function voteForPlaylist(playlistId: string): Promise<ActionResult<
 // Playback Control Actions
 export async function play(): Promise<ActionResult> {
   try {
-    const session = await requireSession()
     const radioState = db.getRadioState()
 
     // Anyone can start playback if nothing is playing
     if (!radioState?.currentSongId) {
+      await requireSession() // Just need a valid session to start
       const nextItem = db.getNextQueueItem()
       if (nextItem?.song) {
         db.updateRadioState({
@@ -315,10 +315,8 @@ export async function play(): Promise<ActionResult> {
       return { success: false, error: 'No song to play' }
     }
 
-    // Only admin can resume when already has a song
-    if (!session.isAdmin) {
-      return { success: false, error: 'Admin access required' }
-    }
+    // Only admin can resume when already has a song (use cookie check like pause)
+    await requireAdmin()
 
     db.updateRadioState({
       isPlaying: true,

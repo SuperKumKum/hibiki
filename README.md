@@ -1,3 +1,25 @@
+## Project Origin
+
+This project is a fork of **bitify** by **bitc0de**.  
+Original repository: https://github.com/bitc0de/bitify
+
+I would like to sincerely thank **bitc0de** for creating and maintaining the original project. Their work provided the solid foundation on which this fork is built.
+
+### Why this fork exists
+
+This fork was created to continue development and introduce changes as a collaborative radio based on the fundation of the project and improve some functionnalities.
+
+The original project remains a valuable reference and may better suit users looking for its original behavior and design philosophy.
+
+### Relationship to the original project
+
+- Original author: bitc0de  
+- Original repository: https://github.com/bitc0de/bitify  
+- License: Same license as the original project (see `LICENSE`)
+
+All credit for the original concept and implementation belongs to **bitc0de**.
+
+
 ![Hibiki](hibiki_v2.svg)
 
 Self-hosted YouTube music streaming and collaborative radio application built with Next.js.

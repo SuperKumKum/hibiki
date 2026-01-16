@@ -38,6 +38,12 @@ export default function PlayerBar({
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const onNextRef = useRef(onNext)
+
+  // Keep onNextRef up to date
+  useEffect(() => {
+    onNextRef.current = onNext
+  }, [onNext])
 
   useEffect(() => {
     if (currentSong && audioRef.current) {
@@ -63,7 +69,11 @@ export default function PlayerBar({
         checkDuration()
         audio.play().then(() => {
           setIsPlaying(true)
-        }).catch(err => console.error('Error playing:', err))
+        }).catch(err => {
+            // Auto-play might be blocked by browser
+            console.warn('Auto-play blocked or failed:', err)
+            setIsPlaying(false)
+        })
       }
       
       audio.addEventListener('loadedmetadata', loadedHandler)
@@ -71,12 +81,12 @@ export default function PlayerBar({
       // Fallback if loadedmetadata doesn't fire
       const timeoutId = setTimeout(() => {
         checkDuration()
-        if (audio.paused) {
+        if (audio.paused && audio.readyState >= 2) {
           audio.play().then(() => {
             setIsPlaying(true)
-          }).catch(err => console.error('Error playing:', err))
+          }).catch(() => {})
         }
-      }, 100)
+      }, 500) // Increased timeout for better stability
       
       return () => {
         audio.removeEventListener('loadedmetadata', loadedHandler)
@@ -89,7 +99,13 @@ export default function PlayerBar({
   useEffect(() => {
     if (nextSong) {
       // Pre-fetch the stream URL to populate cache
-      fetch(`/api/stream/${nextSong.id}`, { method: 'HEAD' }).catch(() => {})
+      const controller = new AbortController()
+      fetch(`/api/stream/${nextSong.id}`, {
+        method: 'HEAD',
+        signal: controller.signal
+      }).catch(() => {})
+
+      return () => controller.abort()
     }
   }, [nextSong])
 
@@ -105,18 +121,21 @@ export default function PlayerBar({
     }
     const handleEnded = () => {
       setIsPlaying(false)
-      if (onNext) onNext()
+      if (onNextRef.current) onNextRef.current()
     }
     const handleCanPlay = () => {
-      // Also update duration when audio can play
       updateDuration()
     }
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
 
     audio.addEventListener('timeupdate', updateTime)
     audio.addEventListener('loadedmetadata', updateDuration)
     audio.addEventListener('durationchange', updateDuration)
     audio.addEventListener('canplay', handleCanPlay)
     audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('play', handlePlay)
+    audio.addEventListener('pause', handlePause)
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime)
@@ -124,25 +143,27 @@ export default function PlayerBar({
       audio.removeEventListener('durationchange', updateDuration)
       audio.removeEventListener('canplay', handleCanPlay)
       audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('play', handlePlay)
+      audio.removeEventListener('pause', handlePause)
     }
-  }, [onNext])
+  }, []) // No dependencies, use refs for callbacks
 
   const togglePlay = () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        audioRef.current.play()
+        audioRef.current.play().catch(err => console.error('Error playing:', err))
       }
-      setIsPlaying(!isPlaying)
+      // isPlaying will be updated via event listeners
     }
   }
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value)
-    setCurrentTime(time)
     if (audioRef.current) {
       audioRef.current.currentTime = time
+      setCurrentTime(time)
     }
   }
 
@@ -150,11 +171,11 @@ export default function PlayerBar({
     const vol = parseFloat(e.target.value)
     setVolume(vol)
     if (audioRef.current) {
-      audioRef.current.volume = vol
+      audioRef.current.volume = isMuted ? 0 : vol
     }
     if (vol === 0) {
       setIsMuted(true)
-    } else {
+    } else if (isMuted) {
       setIsMuted(false)
     }
   }

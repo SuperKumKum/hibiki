@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, ReactNode } from 'react'
+import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react'
 
 interface Song {
   id: string
@@ -35,7 +35,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isShuffled, setIsShuffled] = useState(false)
   const [originalOrder, setOriginalOrder] = useState<Song[]>([])
 
-  const playSong = (song: Song, index: number = 0, songList: Song[] = [], fromPlaylist: boolean = false) => {
+  const playSong = useCallback((song: Song, index: number = 0, songList: Song[] = [], fromPlaylist: boolean = false) => {
     setCurrentSong(song)
     setCurrentIndex(index)
     setPlaylistState(songList)
@@ -43,25 +43,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (fromPlaylist) {
       setOriginalOrder(songList)
     }
-  }
+  }, [])
 
-  const playNext = () => {
+  const playNext = useCallback(() => {
     if (currentIndex < playlist.length - 1) {
       const nextIndex = currentIndex + 1
       setCurrentSong(playlist[nextIndex])
       setCurrentIndex(nextIndex)
     }
-  }
+  }, [currentIndex, playlist])
 
-  const playPrevious = () => {
+  const playPrevious = useCallback(() => {
     if (currentIndex > 0) {
       const prevIndex = currentIndex - 1
       setCurrentSong(playlist[prevIndex])
       setCurrentIndex(prevIndex)
     }
-  }
+  }, [currentIndex, playlist])
 
-  const toggleShuffle = () => {
+  const toggleShuffle = useCallback(() => {
     if (!currentSong || !isPlaylist) return
 
     if (!isShuffled) {
@@ -87,36 +87,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentIndex(originalIndex)
       setIsShuffled(false)
     }
-  }
+  }, [currentSong, isPlaylist, isShuffled, playlist, currentIndex, originalOrder])
 
-  const setPlaylist = (songs: Song[]) => {
+  const setPlaylist = useCallback((songs: Song[]) => {
     setPlaylistState(songs)
-  }
+  }, [])
 
-  const clearPlayer = () => {
+  const clearPlayer = useCallback(() => {
     setCurrentSong(null)
     setCurrentIndex(-1)
     setPlaylistState([])
     setIsPlaylist(false)
     setIsShuffled(false)
-  }
+  }, [])
+
+  const value = useMemo(() => ({
+    currentSong,
+    currentIndex,
+    playlist,
+    isPlaylist,
+    isShuffled,
+    playSong,
+    playNext,
+    playPrevious,
+    toggleShuffle,
+    setPlaylist,
+    clearPlayer,
+  }), [
+    currentSong,
+    currentIndex,
+    playlist,
+    isPlaylist,
+    isShuffled,
+    playSong,
+    playNext,
+    playPrevious,
+    toggleShuffle,
+    setPlaylist,
+    clearPlayer,
+  ])
 
   return (
-    <PlayerContext.Provider
-      value={{
-        currentSong,
-        currentIndex,
-        playlist,
-        isPlaylist,
-        isShuffled,
-        playSong,
-        playNext,
-        playPrevious,
-        toggleShuffle,
-        setPlaylist,
-        clearPlayer,
-      }}
-    >
+    <PlayerContext.Provider value={value}>
       {children}
     </PlayerContext.Provider>
   )

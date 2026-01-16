@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useTransition, useRef } from 'react'
+import { useState, useEffect, useTransition, useRef, useCallback } from 'react'
 import { Plus, Trash2, Music, Play, Menu, X, Download, Loader2, CheckCircle, HardDrive, Upload, CheckSquare, Square } from 'lucide-react'
 import Image from 'next/image'
 import { useToast } from '@/components/Toast'
@@ -220,11 +220,27 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
     }
   }, [selectedPlaylist])
 
-  const getDownloadedCount = (playlist: Playlist) => {
+  const getDownloadedCount = useCallback((playlist: Playlist) => {
     return playlist.playlistSongs.filter(ps => ps.song.isDownloaded).length
-  }
+  }, [])
 
-  const handleDownloadPlaylist = async (playlist: Playlist) => {
+  const refreshPlaylist = useCallback(async (playlistId: string) => {
+    const statusResponse = await fetch(`/api/playlists/${playlistId}`)
+    if (statusResponse.ok) {
+      const updatedPlaylist = await statusResponse.json()
+      setPlaylists(prev => prev.map(p =>
+        p.id === playlistId ? { ...p, playlistSongs: updatedPlaylist.playlistSongs } : p
+      ))
+      setSelectedPlaylist(prev => {
+        if (prev?.id === playlistId) {
+          return { ...prev, playlistSongs: updatedPlaylist.playlistSongs }
+        }
+        return prev
+      })
+    }
+  }, [])
+
+  const handleDownloadPlaylist = useCallback(async (playlist: Playlist) => {
     if (downloadStatus?.isDownloading) {
       showToast('A download is already in progress', 'error')
       return
@@ -267,29 +283,16 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
       showToast('Download failed', 'error')
       setDownloadStatus(null)
     }
-  }
+  }, [downloadStatus, showToast, refreshPlaylist])
 
-  const refreshPlaylist = async (playlistId: string) => {
-    const statusResponse = await fetch(`/api/playlists/${playlistId}`)
-    if (statusResponse.ok) {
-      const updatedPlaylist = await statusResponse.json()
-      setPlaylists(prev => prev.map(p =>
-        p.id === playlistId ? { ...p, playlistSongs: updatedPlaylist.playlistSongs } : p
-      ))
-      if (selectedPlaylist?.id === playlistId) {
-        setSelectedPlaylist(prev => prev ? { ...prev, playlistSongs: updatedPlaylist.playlistSongs } : null)
-      }
-    }
-  }
-
-  const handleUploadSuccess = async () => {
+  const handleUploadSuccess = useCallback(async () => {
     if (selectedPlaylist) {
       await refreshPlaylist(selectedPlaylist.id)
       showToast('File uploaded successfully', 'success')
     }
-  }
+  }, [selectedPlaylist, refreshPlaylist, showToast])
 
-  const handleCreatePlaylist = async (e: React.FormEvent) => {
+  const handleCreatePlaylist = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newPlaylistName.trim()) return
 
@@ -330,57 +333,63 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [newPlaylistName, newPlaylistUrl, showToast])
 
-  const handleDeletePlaylist = async (playlistId: string) => {
+  const handleDeletePlaylist = useCallback(async (playlistId: string) => {
     if (!confirm('Delete this playlist?')) return
 
     startTransition(async () => {
       const result = await deletePlaylist(playlistId)
       if (result.success) {
         setPlaylists((prev) => prev.filter((p) => p.id !== playlistId))
-        if (selectedPlaylist?.id === playlistId) {
-          setSelectedPlaylist(null)
-        }
+        setSelectedPlaylist(prev => prev?.id === playlistId ? null : prev)
         showToast('Playlist deleted', 'success')
       } else {
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [showToast])
 
-  const handleRemoveSong = async (songId: string) => {
+  const handleRemoveSong = useCallback(async (songId: string) => {
     if (!selectedPlaylist) return
 
     startTransition(async () => {
       const result = await removeFromPlaylist(selectedPlaylist.id, songId)
       if (result.success) {
-        const updatedPlaylistSongs = selectedPlaylist.playlistSongs.filter((ps) => ps.song.id !== songId)
-        const updatedPlaylist = { ...selectedPlaylist, playlistSongs: updatedPlaylistSongs }
-        setSelectedPlaylist(updatedPlaylist)
-        setPlaylists((prev) => prev.map((p) => p.id === selectedPlaylist.id ? updatedPlaylist : p))
+        setPlaylists((prev) => prev.map((p) => {
+            if (p.id === selectedPlaylist.id) {
+                return { ...p, playlistSongs: p.playlistSongs.filter((ps) => ps.song.id !== songId) }
+            }
+            return p
+        }))
+        setSelectedPlaylist(prev => {
+            if (prev?.id === selectedPlaylist.id) {
+                return { ...prev, playlistSongs: prev.playlistSongs.filter((ps) => ps.song.id !== songId) }
+            }
+            return prev
+        })
         showToast('Song removed', 'success')
       } else {
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [selectedPlaylist, showToast])
 
-  const handlePlaySong = (song: Song, index: number) => {
+  const handlePlaySong = useCallback((song: Song, index: number) => {
     playSong(song, index, playlistSongs, true)
-  }
+  }, [playSong, playlistSongs])
 
-  const handlePlayPlaylist = (playlist: Playlist) => {
+  const handlePlayPlaylist = useCallback((playlist: Playlist) => {
     const songs = playlist.playlistSongs.map((ps) => ps.song)
     if (songs.length > 0) {
       setPlaylistSongs(songs)
       playSong(songs[0], 0, songs, true)
       setSelectedPlaylist(playlist)
     }
-  }
+  }, [playSong])
 
   // Individual song download
-  const handleDownloadSong = async (song: Song) => {
+  const handleDownloadSong = useCallback(async (song: Song) => {
     if (downloadingSongIds.has(song.id) || song.isDownloaded) return
 
     setDownloadingSongIds(prev => new Set(prev).add(song.id))
@@ -405,43 +414,55 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
         return next
       })
     }
-  }
+  }, [downloadingSongIds, selectedPlaylist, refreshPlaylist, showToast])
 
   // Selection mode functions
-  const toggleSelectionMode = () => {
-    setIsSelectionMode(!isSelectionMode)
+  const toggleSelectionMode = useCallback(() => {
+    setIsSelectionMode(prev => !prev)
     setSelectedSongs(new Set())
-  }
+  }, [])
 
-  const toggleSongSelection = (songId: string) => {
-    const newSelected = new Set(selectedSongs)
-    if (newSelected.has(songId)) {
-      newSelected.delete(songId)
-    } else {
-      newSelected.add(songId)
-    }
-    setSelectedSongs(newSelected)
-  }
+  const toggleSongSelection = useCallback((songId: string) => {
+    setSelectedSongs(prev => {
+        const newSelected = new Set(prev)
+        if (newSelected.has(songId)) {
+          newSelected.delete(songId)
+        } else {
+          newSelected.add(songId)
+        }
+        return newSelected
+    })
+  }, [])
 
-  const selectAllSongs = () => {
+  const selectAllSongs = useCallback(() => {
     if (!selectedPlaylist) return
-    if (selectedSongs.size === selectedPlaylist.playlistSongs.length) {
-      setSelectedSongs(new Set())
-    } else {
-      setSelectedSongs(new Set(selectedPlaylist.playlistSongs.map(ps => ps.song.id)))
-    }
-  }
+    setSelectedSongs(prev => {
+        if (prev.size === selectedPlaylist.playlistSongs.length) {
+          return new Set()
+        } else {
+          return new Set(selectedPlaylist.playlistSongs.map(ps => ps.song.id))
+        }
+    })
+  }, [selectedPlaylist])
 
-  const deleteSelectedSongs = async () => {
+  const deleteSelectedSongs = useCallback(async () => {
     if (!selectedPlaylist || selectedSongs.size === 0) return
 
     startTransition(async () => {
       const result = await removeMultipleFromPlaylist(selectedPlaylist.id, Array.from(selectedSongs))
       if (result.success && result.data) {
-        const updatedPlaylistSongs = selectedPlaylist.playlistSongs.filter(ps => !selectedSongs.has(ps.song.id))
-        const updatedPlaylist = { ...selectedPlaylist, playlistSongs: updatedPlaylistSongs }
-        setSelectedPlaylist(updatedPlaylist)
-        setPlaylists(prev => prev.map(p => p.id === selectedPlaylist.id ? updatedPlaylist : p))
+        setPlaylists(prev => prev.map(p => {
+            if (p.id === selectedPlaylist.id) {
+                return { ...p, playlistSongs: p.playlistSongs.filter(ps => !selectedSongs.has(ps.song.id)) }
+            }
+            return p
+        }))
+        setSelectedPlaylist(prev => {
+            if (prev?.id === selectedPlaylist.id) {
+                return { ...prev, playlistSongs: prev.playlistSongs.filter(ps => !selectedSongs.has(ps.song.id)) }
+            }
+            return prev
+        })
         showToast(`${result.data.removed} song${result.data.removed !== 1 ? 's' : ''} removed`, 'success')
         setSelectedSongs(new Set())
         setIsSelectionMode(false)
@@ -449,9 +470,9 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [selectedPlaylist, selectedSongs, showToast])
 
-  const downloadSelectedSongs = async () => {
+  const downloadSelectedSongs = useCallback(async () => {
     if (!selectedPlaylist || selectedSongs.size === 0) return
 
     const songsToDownload = selectedPlaylist.playlistSongs
@@ -496,7 +517,7 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
 
     setSelectedSongs(new Set())
     setIsSelectionMode(false)
-  }
+  }, [selectedPlaylist, selectedSongs, showToast, refreshPlaylist])
 
   return (
     <>

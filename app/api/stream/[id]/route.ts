@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, statSync, createReadStream } from 'fs'
-import { readFile } from 'fs/promises'
+import { Readable } from 'stream'
 import { db } from '@/lib/db'
 import { getStreamUrl } from '@/lib/ytdlp'
 import { streamCache } from '@/lib/cache'
@@ -38,11 +38,11 @@ export async function GET(
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1
         const chunkSize = end - start + 1
 
-        // Read the specific chunk
-        const buffer = await readFile(song.localPath)
-        const chunk = buffer.slice(start, end + 1)
+        // Create stream for the specific chunk
+        const fileStream = createReadStream(song.localPath, { start, end })
+        const stream = Readable.toWeb(fileStream)
 
-        return new NextResponse(chunk, {
+        return new NextResponse(stream as ReadableStream, {
           status: 206,
           headers: {
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -55,8 +55,10 @@ export async function GET(
       }
 
       // Full file response
-      const buffer = await readFile(song.localPath)
-      return new NextResponse(buffer, {
+      const fileStream = createReadStream(song.localPath)
+      const stream = Readable.toWeb(fileStream)
+
+      return new NextResponse(stream as ReadableStream, {
         headers: {
           'Content-Length': String(fileSize),
           'Content-Type': 'audio/mpeg',

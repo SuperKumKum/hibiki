@@ -253,23 +253,23 @@ export default function RadioQueue() {
   const { queue, session, isAdmin, addToQueue, removeFromQueue, clearQueue, playFromQueue } = useRadio()
   const [showAddModal, setShowAddModal] = useState(false)
 
-  const handleClearQueue = async () => {
+  const handleClearQueue = useCallback(async () => {
     if (confirm('Are you sure you want to clear the entire queue?')) {
       await clearQueue()
     }
-  }
+  }, [clearQueue])
 
-  const handleAdd = async (url: string) => {
+  const handleAdd = useCallback(async (url: string) => {
     return await addToQueue(url, true)
-  }
+  }, [addToQueue])
 
-  const handleRemove = async (queueItemId: string) => {
+  const handleRemove = useCallback(async (queueItemId: string) => {
     await removeFromQueue(queueItemId)
-  }
+  }, [removeFromQueue])
 
-  const handlePlay = async (queueItemId: string) => {
+  const handlePlay = useCallback(async (queueItemId: string) => {
     await playFromQueue(queueItemId)
-  }
+  }, [playFromQueue])
 
   return (
     <div className="bg-gray-800 rounded-xl p-4">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useCallback } from 'react'
 import { Trash2, CheckSquare, Square, X } from 'lucide-react'
 import Header from '@/components/Header'
 import SongCard from '@/components/SongCard'
@@ -38,7 +38,7 @@ export default function HomeContent({ initialSongs, initialPlaylists }: HomeCont
   const { showToast } = useToast()
   const { playSong } = usePlayer()
 
-  const handleAddSong = async (url: string) => {
+  const handleAddSong = useCallback(async (url: string) => {
     startAddingTransition(async () => {
       const result = await addSong(url)
       if (result.success && result.data) {
@@ -48,14 +48,14 @@ export default function HomeContent({ initialSongs, initialPlaylists }: HomeCont
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [showToast])
 
-  const handlePlaySong = (song: Song) => {
+  const handlePlaySong = useCallback((song: Song) => {
     const index = songs.findIndex((s) => s.id === song.id)
     playSong(song, index, songs, false)
-  }
+  }, [songs, playSong])
 
-  const handleDeleteSong = async (songId: string) => {
+  const handleDeleteSong = useCallback(async (songId: string) => {
     startTransition(async () => {
       const result = await deleteSong(songId)
       if (result.success) {
@@ -65,33 +65,37 @@ export default function HomeContent({ initialSongs, initialPlaylists }: HomeCont
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [showToast])
 
   // Selection mode functions
-  const toggleSelectionMode = () => {
-    setIsSelectionMode(!isSelectionMode)
+  const toggleSelectionMode = useCallback(() => {
+    setIsSelectionMode(prev => !prev)
     setSelectedSongs(new Set())
-  }
+  }, [])
 
-  const toggleSongSelection = (songId: string) => {
-    const newSelected = new Set(selectedSongs)
-    if (newSelected.has(songId)) {
-      newSelected.delete(songId)
-    } else {
-      newSelected.add(songId)
-    }
-    setSelectedSongs(newSelected)
-  }
+  const toggleSongSelection = useCallback((songId: string) => {
+    setSelectedSongs(prev => {
+      const newSelected = new Set(prev)
+      if (newSelected.has(songId)) {
+        newSelected.delete(songId)
+      } else {
+        newSelected.add(songId)
+      }
+      return newSelected
+    })
+  }, [])
 
-  const selectAllSongs = () => {
-    if (selectedSongs.size === songs.length) {
-      setSelectedSongs(new Set())
-    } else {
-      setSelectedSongs(new Set(songs.map(song => song.id)))
-    }
-  }
+  const selectAllSongs = useCallback(() => {
+    setSelectedSongs(prev => {
+      if (prev.size === songs.length) {
+        return new Set()
+      } else {
+        return new Set(songs.map(song => song.id))
+      }
+    })
+  }, [songs])
 
-  const deleteSelectedSongs = async () => {
+  const deleteSelectedSongs = useCallback(async () => {
     if (selectedSongs.size === 0) return
 
     startTransition(async () => {
@@ -105,9 +109,9 @@ export default function HomeContent({ initialSongs, initialPlaylists }: HomeCont
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [selectedSongs, showToast])
 
-  const handleAddToPlaylist = async (songId: string, playlistId: string) => {
+  const handleAddToPlaylist = useCallback(async (songId: string, playlistId: string) => {
     startTransition(async () => {
       const result = await addToPlaylist(songId, playlistId)
       if (result.success) {
@@ -116,7 +120,7 @@ export default function HomeContent({ initialSongs, initialPlaylists }: HomeCont
         showToast(result.error, 'error')
       }
     })
-  }
+  }, [showToast])
 
   return (
     <>

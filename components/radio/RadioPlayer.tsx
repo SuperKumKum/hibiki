@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 import { Play, Pause, SkipForward, Volume2, VolumeX, Users, Shuffle } from 'lucide-react'
 import { useRadio } from './RadioContext'
@@ -43,6 +43,11 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
   const [localTime, setLocalTime] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
   const lastSongIdRef = useRef<string | null>(null)
+  const isAdminRef = useRef(isAdmin)
+
+  useEffect(() => {
+    isAdminRef.current = isAdmin
+  }, [isAdmin])
 
   // Load audio when song changes
   useEffect(() => {
@@ -141,14 +146,14 @@ export default function RadioPlayer({ onVoteSkip }: RadioPlayerProps) {
     }
   }, [currentSong])
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAdmin || !currentSong) return
+  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isAdminRef.current || !currentSong) return
 
     const rect = e.currentTarget.getBoundingClientRect()
     const percent = (e.clientX - rect.left) / rect.width
     const newPosition = percent * currentSong.duration
     seek(newPosition)
-  }
+  }, [currentSong, seek])
 
   const progress = currentSong?.duration ? (localTime / currentSong.duration) * 100 : 0
 

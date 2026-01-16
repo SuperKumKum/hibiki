@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode, useMemo } from 'react'
 import { playNotificationSound } from '@/lib/notification'
 import { useAuth } from '@/components/AuthContext'
 import { useToast } from '@/components/Toast'
@@ -278,7 +278,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     prevPlaylistVotesRef.current = newCounts
   }, [playlistVotes, radioPlaylists, showToast])
 
-  const createSession = async (displayName: string, colorIndex: number): Promise<boolean> => {
+  const createSession = useCallback(async (displayName: string, colorIndex: number): Promise<boolean> => {
     try {
       const result = await createSessionAction(displayName, colorIndex)
 
@@ -294,19 +294,19 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       setError('Failed to join radio')
       return false
     }
-  }
+  }, [])
 
-  const endSession = () => {
+  const endSession = useCallback(() => {
     if (session) {
       endSessionAction().catch(() => {})
     }
     setSession(null)
     setIsConnected(false)
     localStorage.removeItem(STORAGE_KEY)
-  }
+  }, [session])
 
 
-  const addToQueue = async (urlOrSongId: string, isUrl = true): Promise<boolean> => {
+  const addToQueue = useCallback(async (urlOrSongId: string, isUrl = true): Promise<boolean> => {
     try {
       const body = isUrl ? { url: urlOrSongId } : { songId: urlOrSongId }
       const res = await fetch('/api/radio/queue', {
@@ -327,9 +327,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error adding to queue:', err)
       return false
     }
-  }
+  }, [getHeaders])
 
-  const removeFromQueue = async (queueItemId: string): Promise<boolean> => {
+  const removeFromQueue = useCallback(async (queueItemId: string): Promise<boolean> => {
     try {
       const result = await removeFromQueueAction(queueItemId)
       return result.success
@@ -337,9 +337,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error removing from queue:', err)
       return false
     }
-  }
+  }, [])
 
-  const voteSkip = async (): Promise<boolean> => {
+  const voteSkip = useCallback(async (): Promise<boolean> => {
     try {
       const result = await voteSkipAction()
 
@@ -356,9 +356,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error voting to skip:', err)
       return false
     }
-  }
+  }, [])
 
-  const voteForPlaylist = async (playlistId: string): Promise<boolean> => {
+  const voteForPlaylist = useCallback(async (playlistId: string): Promise<boolean> => {
     try {
       const result = await voteForPlaylistAction(playlistId)
 
@@ -378,9 +378,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error voting for playlist:', err)
       return false
     }
-  }
+  }, [])
 
-  const play = async () => {
+  const play = useCallback(async () => {
     // Optimistic update
     setRadioState(prev => prev ? { ...prev, isPlaying: true, startedAt: Date.now() } : prev)
     try {
@@ -394,26 +394,26 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       setRadioState(prev => prev ? { ...prev, isPlaying: false, startedAt: null } : prev)
       console.error('Error playing:', err)
     }
-  }
+  }, [])
 
-  const pause = async () => {
+  const pause = useCallback(async () => {
     // Optimistic update
-    const previousState = radioState
-    setRadioState(prev => prev ? { ...prev, isPlaying: false, startedAt: null } : prev)
+    setRadioState(prev => {
+      if (!prev) return prev
+      return { ...prev, isPlaying: false, startedAt: null }
+    })
     try {
       const result = await pauseAction()
       if (!result.success) {
-        // Revert on error
-        setRadioState(previousState)
+        // The next SSE update will revert to server state
         console.error('Error pausing:', result.error)
       }
     } catch (err) {
-      setRadioState(previousState)
       console.error('Error pausing:', err)
     }
-  }
+  }, [])
 
-  const next = async () => {
+  const next = useCallback(async () => {
     try {
       const result = await nextAction()
       if (!result.success) {
@@ -422,9 +422,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('Error skipping:', err)
     }
-  }
+  }, [])
 
-  const seek = async (position: number) => {
+  const seek = useCallback(async (position: number) => {
     // Optimistic update
     setRadioState(prev => prev ? { ...prev, currentPosition: position, startedAt: prev.isPlaying ? Date.now() : null } : prev)
     try {
@@ -435,9 +435,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('Error seeking:', err)
     }
-  }
+  }, [])
 
-  const toggleShuffle = async () => {
+  const toggleShuffle = useCallback(async () => {
     try {
       const result = await toggleShuffleAction()
       if (!result.success) {
@@ -446,7 +446,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error('Error toggling shuffle:', err)
     }
-  }
+  }, [])
 
   const fetchRadioPlaylists = useCallback(async () => {
     try {
@@ -462,7 +462,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
     }
   }, [getHeaders])
 
-  const activatePlaylist = async (playlistId: string): Promise<boolean> => {
+  const activatePlaylist = useCallback(async (playlistId: string): Promise<boolean> => {
     try {
       const result = await activatePlaylistAction(playlistId)
       return result.success
@@ -470,9 +470,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error activating playlist:', err)
       return false
     }
-  }
+  }, [])
 
-  const clearQueue = async (): Promise<boolean> => {
+  const clearQueue = useCallback(async (): Promise<boolean> => {
     try {
       const result = await clearQueueAction()
       return result.success
@@ -480,9 +480,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error clearing queue:', err)
       return false
     }
-  }
+  }, [])
 
-  const playFromQueue = async (queueItemId: string): Promise<boolean> => {
+  const playFromQueue = useCallback(async (queueItemId: string): Promise<boolean> => {
     try {
       const result = await playFromQueueAction(queueItemId)
       return result.success
@@ -490,11 +490,11 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       console.error('Error playing from queue:', err)
       return false
     }
-  }
+  }, [])
 
   // Optimistic update for listener properties (mute, vote status, etc.)
   // Also tracks the update so SSE won't overwrite it until cleared
-  const updateListener = (listenerId: string, updates: Partial<Session>) => {
+  const updateListener = useCallback((listenerId: string, updates: Partial<Session>) => {
     // Track pending update to preserve during SSE updates
     const existing = pendingListenerUpdatesRef.current.get(listenerId) || {}
     pendingListenerUpdatesRef.current.set(listenerId, { ...existing, ...updates })
@@ -504,47 +504,77 @@ export function RadioProvider({ children }: { children: ReactNode }) {
         ? { ...listener, ...updates }
         : listener
     ))
-  }
+  }, [])
 
   // Clear pending update after API call completes (success or failure)
-  const clearPendingListenerUpdate = (listenerId: string) => {
+  const clearPendingListenerUpdate = useCallback((listenerId: string) => {
     pendingListenerUpdatesRef.current.delete(listenerId)
-  }
+  }, [])
+
+  const value = useMemo(() => ({
+    session,
+    radioState,
+    currentSong,
+    queue,
+    listeners,
+    skipVotes,
+    playlistVotes,
+    isAdmin,
+    isConnected,
+    error,
+    activePlaylist,
+    radioPlaylists,
+    createSession,
+    endSession,
+    addToQueue,
+    removeFromQueue,
+    voteSkip,
+    voteForPlaylist,
+    play,
+    pause,
+    next,
+    seek,
+    toggleShuffle,
+    fetchRadioPlaylists,
+    activatePlaylist,
+    clearQueue,
+    playFromQueue,
+    updateListener,
+    clearPendingListenerUpdate
+  }), [
+    session,
+    radioState,
+    currentSong,
+    queue,
+    listeners,
+    skipVotes,
+    playlistVotes,
+    isAdmin,
+    isConnected,
+    error,
+    activePlaylist,
+    radioPlaylists,
+    createSession,
+    endSession,
+    addToQueue,
+    removeFromQueue,
+    voteSkip,
+    voteForPlaylist,
+    play,
+    pause,
+    next,
+    seek,
+    toggleShuffle,
+    fetchRadioPlaylists,
+    activatePlaylist,
+    clearQueue,
+    playFromQueue,
+    updateListener,
+    clearPendingListenerUpdate
+  ])
 
   return (
-    <RadioContext.Provider
-      value={{
-        session,
-        radioState,
-        currentSong,
-        queue,
-        listeners,
-        skipVotes,
-        playlistVotes,
-        isAdmin,
-        isConnected,
-        error,
-        activePlaylist,
-        radioPlaylists,
-        createSession,
-        endSession,
-        addToQueue,
-        removeFromQueue,
-        voteSkip,
-        voteForPlaylist,
-        play,
-        pause,
-        next,
-        seek,
-        toggleShuffle,
-        fetchRadioPlaylists,
-        activatePlaylist,
-        clearQueue,
-        playFromQueue,
-        updateListener,
-        clearPendingListenerUpdate
-      }}
-    >
+    <RadioContext.Provider value={value}>
       {children}
     </RadioContext.Provider>
   )

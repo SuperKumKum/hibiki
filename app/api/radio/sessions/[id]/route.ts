@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { notifyRadioChanged } from '@/lib/radio/hub'
 
 // Update session settings (admin only)
 // Supports: countsForVotes, isMuted
@@ -58,6 +59,8 @@ export async function PATCH(
     if (isMuted !== undefined) updates.isMuted = isMuted
 
     const updatedSession = db.updateSession(id, updates)
+
+    notifyRadioChanged()
 
     return NextResponse.json({
       success: true,

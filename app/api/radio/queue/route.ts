@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getYoutubeMetadata } from '@/lib/ytdlp'
+import { notifyRadioChanged } from '@/lib/radio/hub'
 
 export async function GET(request: NextRequest) {
   try {
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest) {
 
     // Add to queue
     const queueItem = db.addToRadioQueue(song.id, session.id, session.displayName)
+
+    notifyRadioChanged()
 
     return NextResponse.json({
       ...queueItem,

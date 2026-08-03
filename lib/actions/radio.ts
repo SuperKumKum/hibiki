@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { notifyRadioChanged } from '@/lib/radio/hub'
 
 const SESSION_COOKIE = 'hibiki_session_id'
 const ADMIN_COOKIE = 'hibiki_admin_token'
@@ -116,6 +117,7 @@ export async function endSession(): Promise<ActionResult> {
     const cookieStore = await cookies()
     cookieStore.delete(SESSION_COOKIE)
 
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error ending session:', error)
@@ -134,12 +136,15 @@ export async function removeFromQueue(queueItemId: string): Promise<ActionResult
       return { success: false, error: 'Queue item not found' }
     }
 
-    // Only admin or the person who added can remove
-    if (!session.isAdmin && queueItem.addedBy !== session.id) {
+    // Only admin or the person who added can remove. Admin comes from the signed token:
+    // sessions.is_admin is never set to 1, so testing it denied every admin.
+    const isAdmin = await isAdminFromCookie()
+    if (!isAdmin && queueItem.addedBy !== session.id) {
       return { success: false, error: 'Not authorized to remove this item' }
     }
 
     db.removeFromRadioQueue(queueItemId)
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error removing from queue:', error)
@@ -167,45 +172,20 @@ export async function voteSkip(): Promise<ActionResult<SkipVoteStatus>> {
     db.createSkipVote(session.id, radioState.currentSongId)
 
     // Check if threshold met (only count users who can vote)
-    const activeVoters = db.getActiveVoters().length
-    const votesNeeded = Math.max(1, Math.floor(activeVoters / 2) + 1)
-    const currentVotes = db.getSkipVotesForSong(radioState.currentSongId).length
+    const activeVoters = db.getActiveVoters()
+    const eligibleVoterIds = new Set(activeVoters.map(s => s.id))
+    const votesNeeded = Math.max(1, Math.floor(activeVoters.length / 2) + 1)
+    const currentVotes = db
+      .getSkipVotesForSong(radioState.currentSongId)
+      .filter(v => eligibleVoterIds.has(v.sessionId)).length
 
-    let skipped = false
+    // Delegate to the single atomic implementation. The compare-and-swap token means a
+    // vote that lands just after the hub already advanced cannot skip a second song.
+    const skipped =
+      currentVotes >= votesNeeded &&
+      db.advanceToNextSong({ expectedSongId: radioState.currentSongId }).advanced
 
-    if (currentVotes >= votesNeeded) {
-      // Skip to next song
-      db.clearSkipVotesForSong(radioState.currentSongId)
-
-      const nextItem = db.getNextQueueItem()
-      if (nextItem?.song) {
-        db.markQueueItemPlayed(nextItem.id)
-        db.updateRadioState({
-          isPlaying: true,
-          currentSongId: nextItem.song.id,
-          currentPosition: 0,
-          startedAt: Date.now()
-        })
-      } else {
-        const playlistSong = db.getNextRadioPlaylistSong()
-        if (playlistSong?.song) {
-          db.updateRadioState({
-            isPlaying: true,
-            currentSongId: playlistSong.song.id,
-            currentPosition: 0,
-            startedAt: Date.now()
-          })
-        } else {
-          db.updateRadioState({
-            isPlaying: false,
-            currentSongId: null,
-            currentPosition: 0,
-            startedAt: null
-          })
-        }
-      }
-      skipped = true
-    }
+    notifyRadioChanged()
 
     return {
       success: true,
@@ -266,12 +246,14 @@ export async function voteForPlaylist(playlistId: string): Promise<ActionResult<
       db.setActiveRadioPlaylist(playlistId)
       db.clearPlaylistVotes()
 
+      notifyRadioChanged()
       return {
         success: true,
         data: { activated: true, current, required }
       }
     }
 
+    notifyRadioChanged()
     return {
       success: true,
       data: { activated: false, current, required }
@@ -300,6 +282,7 @@ export async function play(): Promise<ActionResult> {
         })
         db.markQueueItemPlayed(nextItem.id)
         db.clearSkipVotesForSong(nextItem.song.id)
+        notifyRadioChanged()
         return { success: true }
       }
 
@@ -311,6 +294,7 @@ export async function play(): Promise<ActionResult> {
           currentPosition: 0,
           startedAt: Date.now()
         })
+        notifyRadioChanged()
         return { success: true }
       }
 
@@ -325,6 +309,7 @@ export async function play(): Promise<ActionResult> {
       startedAt: Date.now()
     })
 
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error playing:', error)
@@ -349,6 +334,7 @@ export async function pause(): Promise<ActionResult> {
       startedAt: null
     })
 
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error pausing:', error)
@@ -360,47 +346,10 @@ export async function next(): Promise<ActionResult> {
   try {
     await requireAdmin()
 
-    // Clear votes for current song
-    const radioState = db.getRadioState()
-    if (radioState?.currentSongId) {
-      db.clearSkipVotesForSong(radioState.currentSongId)
-    }
+    // Explicit admin skip: no compare-and-swap token, the request always wins
+    db.advanceToNextSong()
 
-    // Try to get next song from queue first
-    const nextItem = db.getNextQueueItem()
-
-    if (nextItem?.song) {
-      db.markQueueItemPlayed(nextItem.id)
-      db.updateRadioState({
-        isPlaying: true,
-        currentSongId: nextItem.song.id,
-        currentPosition: 0,
-        startedAt: Date.now()
-      })
-      return { success: true }
-    }
-
-    // Queue is empty, try radio playlist
-    const playlistSong = db.getNextRadioPlaylistSong()
-
-    if (playlistSong?.song) {
-      db.updateRadioState({
-        isPlaying: true,
-        currentSongId: playlistSong.song.id,
-        currentPosition: 0,
-        startedAt: Date.now()
-      })
-      return { success: true }
-    }
-
-    // No songs available, stop playing
-    db.updateRadioState({
-      isPlaying: false,
-      currentSongId: null,
-      currentPosition: 0,
-      startedAt: null
-    })
-
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error skipping to next:', error)
@@ -427,6 +376,7 @@ export async function seek(position: number): Promise<ActionResult> {
       startedAt: radioState.isPlaying ? Date.now() : null
     })
 
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error seeking:', error)
@@ -439,6 +389,7 @@ export async function toggleShuffle(): Promise<ActionResult<boolean>> {
     await requireAdmin()
     const radioState = db.toggleShuffle()
 
+    notifyRadioChanged()
     return { success: true, data: radioState.isShuffled }
   } catch (error) {
     console.error('Error toggling shuffle:', error)
@@ -450,6 +401,7 @@ export async function clearQueue(): Promise<ActionResult> {
   try {
     await requireAdmin()
     db.clearRadioQueue()
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error clearing queue:', error)
@@ -486,6 +438,7 @@ export async function activatePlaylist(playlistId: string): Promise<ActionResult
     // Set the active playlist
     db.setActiveRadioPlaylist(playlistId)
 
+    notifyRadioChanged()
     return { success: true, data: { songsAdded: playlistSongs.length } }
   } catch (error) {
     console.error('Error activating playlist:', error)
@@ -530,6 +483,7 @@ export async function playFromQueue(queueItemId: string): Promise<ActionResult> 
       startedAt: Date.now()
     })
 
+    notifyRadioChanged()
     return { success: true }
   } catch (error) {
     console.error('Error playing from queue:', error)

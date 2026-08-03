@@ -1,93 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { existsSync } from 'fs'
 import { db } from '@/lib/db'
-import { downloadAudio } from '@/lib/ytdlp'
+import { isAdminRequest } from '@/lib/auth'
+import { getPlaylistDownloadJob, startPlaylistDownload } from '@/lib/jobs/playlistDownload'
 
+/**
+ * Playlist download control
+ *
+ * @description POST starts a background job and returns immediately; GET reports its
+ * progress. Downloading inline used to hold the request open for up to five minutes per
+ * song, so the proxy cut the connection long before a real playlist finished.
+ */
+
+/**
+ * Starts downloading every song of a playlist
+ *
+ * @returns 202 with the initial job state, or 409 when one is already running
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!(await isAdminRequest(request))) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    }
+
     const { id } = await params
 
     const playlist = db.getPlaylistById(id)
     if (!playlist) {
+      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 })
+    }
+
+    const existing = getPlaylistDownloadJob(id)
+    if (existing?.status === 'running') {
       return NextResponse.json(
-        { error: 'Playlist not found' },
-        { status: 404 }
+        { error: 'A download is already running for this playlist', job: existing },
+        { status: 409 }
       )
     }
 
-    const playlistSongs = db.getPlaylistSongs(id)
-    if (playlistSongs.length === 0) {
-      return NextResponse.json(
-        { error: 'Playlist is empty' },
-        { status: 400 }
-      )
+    const job = startPlaylistDownload(id)
+    if (!job) {
+      return NextResponse.json({ error: 'Playlist is empty' }, { status: 400 })
     }
 
-    console.log(`[API] Downloading playlist: ${playlist.name} (${playlistSongs.length} songs)`)
-
-    const results = {
-      total: playlistSongs.length,
-      downloaded: 0,
-      skipped: 0,
-      failed: 0,
-      errors: [] as string[]
-    }
-
-    for (const ps of playlistSongs) {
-      const song = ps.song
-      if (!song) {
-        results.failed++
-        results.errors.push(`Song not found for playlist entry`)
-        continue
-      }
-
-      // Check if already downloaded
-      if (song.isDownloaded && song.localPath && existsSync(song.localPath)) {
-        console.log(`[API] Song already downloaded: ${song.title}`)
-        results.skipped++
-        continue
-      }
-
-      try {
-        const outputPath = db.getAudioPath(song.id)
-        console.log(`[API] Downloading: ${song.title}`)
-
-        await downloadAudio(song.youtubeId, outputPath)
-
-        if (existsSync(outputPath)) {
-          db.markSongDownloaded(song.id, outputPath)
-          results.downloaded++
-          console.log(`[API] Downloaded successfully: ${song.title}`)
-        } else {
-          throw new Error('File not found after download')
-        }
-      } catch (error) {
-        console.error(`[API] Failed to download: ${song.title}`, error)
-        results.failed++
-        results.errors.push(`${song.title}: ${String(error)}`)
-      }
-    }
-
-    console.log(`[API] Playlist download complete:`, results)
-
-    return NextResponse.json({
-      success: true,
-      message: `Downloaded ${results.downloaded} songs, skipped ${results.skipped}, failed ${results.failed}`,
-      results
-    })
+    return NextResponse.json({ started: true, job }, { status: 202 })
   } catch (error) {
-    console.error('[API] Error downloading playlist:', error)
+    console.error('[API] Error starting playlist download:', error)
     return NextResponse.json(
-      { error: 'Failed to download playlist', details: String(error) },
+      { error: 'Failed to start playlist download', details: String(error) },
       { status: 500 }
     )
   }
 }
 
-// Get download status for all songs in playlist
+/**
+ * Reports download progress for a playlist
+ *
+ * @description When no job exists (never started, or finished long ago) the current
+ * on-disk state is reported instead, so the client can always render something useful.
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -97,39 +70,22 @@ export async function GET(
 
     const playlist = db.getPlaylistById(id)
     if (!playlist) {
-      return NextResponse.json(
-        { error: 'Playlist not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 })
     }
 
-    const playlistSongs = db.getPlaylistSongs(id)
+    const job = getPlaylistDownloadJob(id)
+    if (job) {
+      return NextResponse.json({ job })
+    }
 
-    const songs = playlistSongs.map(ps => {
-      const song = ps.song
-      if (!song) return null
-
-      const isDownloaded = song.isDownloaded && song.localPath && existsSync(song.localPath)
-      return {
-        id: song.id,
-        title: song.title,
-        isDownloaded,
-        downloadedAt: isDownloaded ? song.downloadedAt : null
-      }
-    }).filter(Boolean)
-
-    const downloadedCount = songs.filter(s => s?.isDownloaded).length
-
+    const counts = db.getPlaylistLocalCount(id)
     return NextResponse.json({
-      total: songs.length,
-      downloaded: downloadedCount,
-      songs
+      job: null,
+      total: counts.total,
+      downloaded: counts.local
     })
   } catch (error) {
-    console.error('[API] Error checking playlist download status:', error)
-    return NextResponse.json(
-      { error: 'Failed to check download status' },
-      { status: 500 }
-    )
+    console.error('[API] Error reading playlist download status:', error)
+    return NextResponse.json({ error: 'Failed to read download status' }, { status: 500 })
   }
 }

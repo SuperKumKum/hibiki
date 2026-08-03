@@ -237,35 +237,73 @@ export default function PlaylistsContent({ initialPlaylists }: PlaylistsContentP
     })
 
     try {
+      // The server runs the download as a background job and answers immediately, so a
+      // long playlist no longer outlives the request.
       const response = await fetch(`/api/playlists/${playlist.id}/download`, { method: 'POST' })
 
-      if (response.ok) {
-        const result = await response.json()
-        setDownloadStatus({
-          playlistId: playlist.id,
-          isDownloading: false,
-          progress: {
-            downloaded: result.results.downloaded + result.results.skipped,
-            total: result.results.total,
-            failed: result.results.failed
-          }
-        })
-
-        await refreshPlaylist(playlist.id)
-
-        if (result.results.failed > 0) {
-          showToast(`Downloaded ${result.results.downloaded} songs, ${result.results.failed} failed`, 'error')
-        } else {
-          showToast(`Downloaded ${result.results.downloaded} songs (${result.results.skipped} already downloaded)`, 'success')
-        }
-      } else {
+      if (!response.ok) {
         const error = await response.json()
         showToast(error.error || 'Download failed', 'error')
         setDownloadStatus(null)
+        return
+      }
+
+      const job = await pollDownloadJob(playlist.id)
+
+      setDownloadStatus({
+        playlistId: playlist.id,
+        isDownloading: false,
+        progress: {
+          downloaded: job.downloaded + job.skipped,
+          total: job.total,
+          failed: job.failed
+        }
+      })
+
+      await refreshPlaylist(playlist.id)
+
+      if (job.failed > 0) {
+        showToast(`Downloaded ${job.downloaded} songs, ${job.failed} failed`, 'error')
+      } else {
+        showToast(`Downloaded ${job.downloaded} songs (${job.skipped} already downloaded)`, 'success')
       }
     } catch {
       showToast('Download failed', 'error')
       setDownloadStatus(null)
+    }
+  }
+
+  /**
+   * Follows a background download job until it finishes
+   *
+   * @description Updates the progress bar from real server-side counters instead of
+   * leaving it pinned at zero for the whole download.
+   *
+   * @param playlistId Playlist being downloaded
+   * @returns Final job counters
+   */
+  const pollDownloadJob = async (playlistId: string) => {
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      const res = await fetch(`/api/playlists/${playlistId}/download`)
+      if (!res.ok) throw new Error('Lost track of the download')
+
+      const { job } = await res.json()
+      // The job entry is dropped some time after completion
+      if (!job) throw new Error('Download job no longer available')
+
+      setDownloadStatus({
+        playlistId,
+        isDownloading: job.status === 'running',
+        progress: {
+          downloaded: job.downloaded + job.skipped,
+          total: job.total,
+          failed: job.failed
+        }
+      })
+
+      if (job.status !== 'running') return job
     }
   }
 

@@ -4,7 +4,7 @@ import { join } from 'path'
 import { randomBytes } from 'crypto'
 
 // Types
-interface Song {
+export interface Song {
   id: string
   youtubeId: string
   title: string
@@ -18,7 +18,7 @@ interface Song {
   downloadedAt?: number | null
 }
 
-interface Playlist {
+export interface Playlist {
   id: string
   name: string
   createdAt: number
@@ -32,7 +32,7 @@ interface PlaylistSong {
   addedAt: number
 }
 
-interface Session {
+export interface Session {
   id: string
   displayName: string
   colorIndex: number
@@ -44,7 +44,7 @@ interface Session {
   isMuted: boolean
 }
 
-interface RadioState {
+export interface RadioState {
   id: string
   isPlaying: boolean
   currentSongId: string | null
@@ -98,7 +98,20 @@ function getDataDir() {
   return join(process.cwd(), 'data')
 }
 
+/**
+ * Resolves the database file to open
+ *
+ * @description `next build` loads every route module in several parallel worker processes
+ * just to collect metadata. Each worker opened the same file and ran schema creation, all
+ * racing for the exclusive lock that the WAL switch and DDL need, which failed the build
+ * intermittently with SQLITE_BUSY. Nothing at build time reads real data (the data
+ * directory is not even part of the Docker build context), so each worker gets a private
+ * in-memory database instead.
+ */
 function getDbPath() {
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return ':memory:'
+  }
   return join(getDataDir(), 'hibiki.db')
 }
 
@@ -125,40 +138,20 @@ function ensureAudioDir() {
 ensureDataDir()
 const sqlite = new Database(getDbPath())
 
+// Wait for locks instead of failing immediately. This must be set before any pragma that
+// needs an exclusive lock: switching to WAL takes one, and with the default timeout of 0 a
+// concurrent opener fails outright with SQLITE_BUSY (as happens during `next build`, whose
+// page-data collection loads route modules in several parallel workers).
+sqlite.pragma('busy_timeout = 5000')
+
 // Enable WAL mode for better concurrency
 sqlite.pragma('journal_mode = WAL')
 sqlite.pragma('foreign_keys = ON')
 
-// Write queue to prevent database lock contention
-// Serializes all write operations to avoid SQLITE_BUSY errors
-class WriteQueue {
-  private queue: Promise<unknown> = Promise.resolve()
-  private pending = 0
-
-  // Execute a write operation in the queue
-  write<T>(operation: () => T): T {
-    // For synchronous better-sqlite3 operations, we use a simple lock mechanism
-    // Since better-sqlite3 is synchronous, we track pending operations
-    // and use busy_timeout to handle concurrent access
-    this.pending++
-    try {
-      return operation()
-    } finally {
-      this.pending--
-    }
-  }
-
-  // Get number of pending operations (for debugging)
-  getPending(): number {
-    return this.pending
-  }
-}
-
-const writeQueue = new WriteQueue()
-
-// Set busy timeout to wait for locks instead of failing immediately
-// This gives time for other operations to complete
-sqlite.pragma('busy_timeout = 5000')
+// With WAL, NORMAL is durable against process crashes and only risks losing the last
+// commits on host power loss. FULL fsyncs on every commit, which is wasted work for
+// session liveness and playback position updates.
+sqlite.pragma('synchronous = NORMAL')
 
 // Transaction helper for batching multiple operations
 // Reduces lock time by combining operations into a single transaction
@@ -421,6 +414,56 @@ function generateId(): string {
   return randomBytes(16).toString('hex')
 }
 
+/** How long the audio directory listing stays valid. */
+const AUDIO_INDEX_TTL_MS = 5000
+
+/** Minimum delay between two reconciliations of download flags against disk. */
+const AUDIO_SYNC_MIN_INTERVAL_MS = 60000
+
+let audioIndex: Set<string> | null = null
+let audioIndexAt = 0
+let lastAudioSyncAt = 0
+
+/**
+ * Returns the set of song ids that have an audio file on disk
+ *
+ * @description Shared, short-lived cache over a single readdir. Callers used to list the
+ * directory themselves, so rendering a page with N playlists performed N+1 directory
+ * reads over a folder holding one file per downloaded song.
+ *
+ * @param options.refresh Bypass the cache and re-read the directory
+ * @returns Set of song ids, or null when the directory could not be read
+ *
+ * @example
+ * const files = getAudioFileIndex()
+ * const available = files?.has(song.id) ?? false
+ */
+function getAudioFileIndex(options?: { refresh?: boolean }): Set<string> | null {
+  const now = Date.now()
+  if (!options?.refresh && audioIndex && now - audioIndexAt < AUDIO_INDEX_TTL_MS) {
+    return audioIndex
+  }
+
+  try {
+    const files = readdirSync(ensureAudioDir())
+    const index = new Set<string>()
+    for (const file of files) {
+      if (file.endsWith('.mp3')) index.add(file.slice(0, -4))
+    }
+    audioIndex = index
+    audioIndexAt = now
+    return index
+  } catch (error) {
+    console.error('[DB] Error reading audio directory:', error)
+    return null
+  }
+}
+
+/** Drops the cached listing after a download or deletion changes the directory. */
+function invalidateAudioIndex(): void {
+  audioIndex = null
+}
+
 // Prepared statements for better performance
 const statements = {
   // Songs
@@ -612,6 +655,9 @@ const statements = {
   // For getNextRadioPlaylistSong - using library playlists
   getPlaylistSongEntries: sqlite.prepare(`
     SELECT song_id, position FROM playlist_songs WHERE playlist_id = ? ORDER BY position
+  `),
+  getPlaylistSongIds: sqlite.prepare(`
+    SELECT song_id FROM playlist_songs WHERE playlist_id = ?
   `)
 }
 
@@ -797,6 +843,25 @@ export const db = {
   heartbeatSession: (id: string): boolean => {
     const result = statements.heartbeatSession.run(Date.now(), id)
     return result.changes > 0
+  },
+
+  /**
+   * Refreshes several sessions in a single transaction
+   *
+   * @description Used by the radio hub to keep every connected listener alive with one
+   * commit instead of one write per listener per tick.
+   *
+   * @param sessionIds Sessions to mark as seen now
+   */
+  heartbeatSessions: (sessionIds: string[]): void => {
+    if (sessionIds.length === 0) return
+
+    const now = Date.now()
+    withTransaction(() => {
+      for (const id of sessionIds) {
+        statements.heartbeatSession.run(now, id)
+      }
+    })
   },
 
   deleteSession: (id: string): void => {
@@ -1101,13 +1166,44 @@ export const db = {
     return db.updateRadioState({ isShuffled: !current?.isShuffled })
   },
 
-  // Advance to next song atomically (used by auto-advance and skip)
-  // Returns the new current song or null if queue is empty
-  advanceToNextSong: (): { radioState: RadioState; currentSong: Song | null } => {
+  /**
+   * Advances playback to the next song atomically
+   *
+   * @description Single implementation used by auto-advance, manual skip and skip votes.
+   * Accepts an optional compare-and-swap token: when `expectedSongId` is supplied and no
+   * longer matches the stored current song, another caller already advanced and this call
+   * becomes a no-op. Without it, concurrent callers each consume a queue item, which
+   * silently burns through the queue.
+   *
+   * @param options.expectedSongId Song the caller observed as current, or null if none
+   * @returns New radio state, the new current song, and whether an advance happened
+   *
+   * @example
+   * // Auto-advance: only act if the song we saw finish is still the current one
+   * const { currentSong, advanced } = db.advanceToNextSong({ expectedSongId: song.id })
+   *
+   * @example
+   * // Explicit admin skip: always advance
+   * db.advanceToNextSong()
+   */
+  advanceToNextSong: (options?: {
+    expectedSongId?: string | null
+  }): { radioState: RadioState; currentSong: Song | null; advanced: boolean } => {
     return withTransaction(() => {
       const radioState = db.getRadioState()
-      if (radioState?.currentSongId) {
-        db.clearSkipVotesForSong(radioState.currentSongId)
+      const observedSongId = radioState?.currentSongId ?? null
+
+      // Compare-and-swap guard against concurrent advances
+      if (options && 'expectedSongId' in options && observedSongId !== (options.expectedSongId ?? null)) {
+        return {
+          radioState: radioState ?? db.updateRadioState({}),
+          currentSong: observedSongId ? db.getSongById(observedSongId) ?? null : null,
+          advanced: false
+        }
+      }
+
+      if (observedSongId) {
+        db.clearSkipVotesForSong(observedSongId)
       }
 
       // Try queue first
@@ -1120,7 +1216,7 @@ export const db = {
           currentPosition: 0,
           startedAt: Date.now()
         })
-        return { radioState: newState, currentSong: nextItem.song }
+        return { radioState: newState, currentSong: nextItem.song, advanced: true }
       }
 
       // Try playlist fallback
@@ -1132,7 +1228,7 @@ export const db = {
           currentPosition: 0,
           startedAt: Date.now()
         })
-        return { radioState: newState, currentSong: playlistSong.song }
+        return { radioState: newState, currentSong: playlistSong.song, advanced: true }
       }
 
       // No more songs - stop playback
@@ -1142,7 +1238,7 @@ export const db = {
         currentPosition: 0,
         startedAt: null
       })
-      return { radioState: newState, currentSong: null }
+      return { radioState: newState, currentSong: null, advanced: true }
     })
   },
 
@@ -1154,6 +1250,7 @@ export const db = {
   },
 
   markSongDownloaded: (songId: string, localPath: string): Song | null => {
+    invalidateAudioIndex()
     return db.updateSong(songId, {
       isDownloaded: true,
       localPath,
@@ -1162,6 +1259,7 @@ export const db = {
   },
 
   markSongNotDownloaded: (songId: string): Song | null => {
+    invalidateAudioIndex()
     return db.updateSong(songId, {
       isDownloaded: false,
       localPath: null,
@@ -1176,64 +1274,79 @@ export const db = {
     return rows.map(rowToSong)
   },
 
-  // Sync local audio files with database
-  syncLocalAudioFiles: (): { synced: number; removed: number } => {
+  /**
+   * Reconciles the download flags with what is actually on disk
+   *
+   * @description Throttled and batched. This used to run on every request to
+   * /api/radio/playlists and on every /playlists page render, each time re-reading the
+   * audio directory, scanning the whole songs table and issuing one write per drift.
+   *
+   * @param options.force Run even if the last sync was recent
+   * @returns Counts of repaired rows, both zero when the run was skipped
+   */
+  syncLocalAudioFiles: (options?: { force?: boolean }): { synced: number; removed: number } => {
+    const now = Date.now()
+    if (!options?.force && now - lastAudioSyncAt < AUDIO_SYNC_MIN_INTERVAL_MS) {
+      return { synced: 0, removed: 0 }
+    }
+    lastAudioSyncAt = now
+
     const audioDir = ensureAudioDir()
-    let audioFiles: string[] = []
-    try {
-      audioFiles = readdirSync(audioDir)
-        .filter(f => f.endsWith('.mp3'))
-        .map(f => f.replace('.mp3', ''))
-    } catch (error) {
-      console.error('[DB] Error reading audio directory:', error)
+    const audioFiles = getAudioFileIndex({ refresh: true })
+    if (audioFiles === null) return { synced: 0, removed: 0 }
+
+    const allSongs = sqlite.prepare(`SELECT id, title, is_downloaded FROM songs`).all() as {
+      id: string
+      title: string
+      is_downloaded: number
+    }[]
+
+    // Collect drift first, then apply every repair in a single transaction
+    const toMark: { id: string; path: string; title: string }[] = []
+    const toClear: { id: string; title: string }[] = []
+
+    for (const song of allSongs) {
+      const isDownloaded = Boolean(song.is_downloaded)
+      const fileExists = audioFiles.has(song.id)
+
+      if (fileExists && !isDownloaded) {
+        toMark.push({ id: song.id, path: join(audioDir, `${song.id}.mp3`), title: song.title })
+      } else if (!fileExists && isDownloaded) {
+        toClear.push({ id: song.id, title: song.title })
+      }
+    }
+
+    if (toMark.length === 0 && toClear.length === 0) {
       return { synced: 0, removed: 0 }
     }
 
-    let synced = 0
-    let removed = 0
+    withTransaction(() => {
+      for (const song of toMark) db.markSongDownloaded(song.id, song.path)
+      for (const song of toClear) db.markSongNotDownloaded(song.id)
+    })
 
-    const allSongs = sqlite.prepare(`SELECT * FROM songs`).all() as Record<string, unknown>[]
-
-    for (const row of allSongs) {
-      const song = rowToSong(row)
-      const expectedPath = join(audioDir, `${song.id}.mp3`)
-      const fileExists = audioFiles.includes(song.id)
-
-      if (fileExists && !song.isDownloaded) {
-        db.markSongDownloaded(song.id, expectedPath)
-        synced++
-        console.log(`[DB] Synced local file for song: ${song.title}`)
-      } else if (!fileExists && song.isDownloaded) {
-        db.markSongNotDownloaded(song.id)
-        removed++
-        console.log(`[DB] Removed download status for missing file: ${song.title}`)
-      }
-    }
-
-    return { synced, removed }
+    console.log(`[DB] Audio sync: ${toMark.length} marked downloaded, ${toClear.length} cleared`)
+    return { synced: toMark.length, removed: toClear.length }
   },
 
-  // Get count of locally available songs for a playlist
+  /**
+   * Counts how many of a playlist's songs are available on disk
+   *
+   * @description Reads the shared audio index instead of listing the directory itself, so
+   * rendering N playlists costs one directory read rather than N.
+   *
+   * @param playlistId Playlist to inspect
+   * @returns Total song count and how many are locally available
+   */
   getPlaylistLocalCount: (playlistId: string): { total: number; local: number } => {
-    const audioDir = ensureAudioDir()
-    let audioFiles: string[] = []
-    try {
-      audioFiles = readdirSync(audioDir)
-        .filter(f => f.endsWith('.mp3'))
-        .map(f => f.replace('.mp3', ''))
-    } catch {
-      return { total: 0, local: 0 }
-    }
+    const playlistSongs = statements.getPlaylistSongIds.all(playlistId) as { song_id: string }[]
+    const audioFiles = getAudioFileIndex()
 
-    const playlistSongs = sqlite.prepare(`
-      SELECT song_id FROM playlist_songs WHERE playlist_id = ?
-    `).all(playlistId) as { song_id: string }[]
+    if (audioFiles === null) return { total: playlistSongs.length, local: 0 }
 
     let localCount = 0
     for (const ps of playlistSongs) {
-      if (audioFiles.includes(ps.song_id)) {
-        localCount++
-      }
+      if (audioFiles.has(ps.song_id)) localCount++
     }
 
     return { total: playlistSongs.length, local: localCount }

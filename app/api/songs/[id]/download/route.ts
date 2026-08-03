@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { existsSync } from 'fs'
 import { db } from '@/lib/db'
 import { downloadAudio } from '@/lib/ytdlp'
+import { isAdminRequest } from '@/lib/auth'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Spawns a child process and writes to disk, so it must not be open to anyone
+    if (!(await isAdminRequest(request))) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    }
+
     const { id } = await params
 
     const song = db.getSongById(id)

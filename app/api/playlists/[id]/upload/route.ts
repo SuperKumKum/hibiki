@@ -2,41 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { writeFile } from 'fs/promises'
 import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
-
-const SESSION_COOKIE = 'hibiki_session_id'
-
-async function requireAdmin(request: NextRequest) {
-  // Check cookie first
-  const cookieStore = await cookies()
-  let sessionId = cookieStore.get(SESSION_COOKIE)?.value
-
-  // Fallback to header
-  if (!sessionId) {
-    sessionId = request.headers.get('X-Session-ID') || undefined
-  }
-
-  if (!sessionId) {
-    return null
-  }
-
-  const session = db.getSessionById(sessionId)
-  if (!session || !session.isAdmin) {
-    return null
-  }
-
-  return session
-}
+import { isAdminRequest } from '@/lib/auth'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verify admin access
-    const admin = await requireAdmin(request)
-    if (!admin) {
+    // Admin is established by the signed admin token, not by a radio session row: the
+    // sessions.is_admin column is never set to 1 anywhere, so the previous check rejected
+    // every caller and uploads always failed with 403.
+    if (!(await isAdminRequest(request))) {
       return NextResponse.json(
         { error: 'Admin access required' },
         { status: 403 }
